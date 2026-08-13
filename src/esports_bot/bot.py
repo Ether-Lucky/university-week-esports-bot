@@ -83,9 +83,20 @@ class EsportsBot(commands.Bot):
 
         # Guild-scoped sync = near-instant command propagation (vs. up to 1h global).
         guild = discord.Object(id=self.settings.guild_id)
-        self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
-        log.info("Slash commands synced to guild %s", self.settings.guild_id)
+        try:
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            log.info("Slash commands synced to guild %s", self.settings.guild_id)
+        except discord.Forbidden:
+            log.error(
+                "Could not register slash commands (403 Missing Access). The bot was most "
+                "likely invited WITHOUT the 'applications.commands' scope. Re-invite it via "
+                "Developer Portal -> OAuth2 -> URL Generator with BOTH the 'bot' and "
+                "'applications.commands' scopes, then restart. See README step 5. "
+                "The bot will keep running, but its slash commands won't appear until this is fixed."
+            )
+        except discord.HTTPException:
+            log.exception("Failed to sync slash commands; the bot will keep running.")
 
     async def on_ready(self) -> None:
         assert self.user is not None

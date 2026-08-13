@@ -397,6 +397,7 @@ tryout date) before `/tryout start` will run.
 | `Configuration error: missing or invalid settings` on start | A required value in `.env` is missing/blank. Check `DISCORD_TOKEN`, `GUILD_ID`, `DATABASE_URL`. |
 | Bot starts but `Configured GUILD_ID … not found` | The bot isn't in that server, or `GUILD_ID` is wrong. Re-invite (step 5) / re-copy the server ID. |
 | Slash commands don't appear | Wait a few seconds and refresh Discord; the bot syncs commands to your guild on startup. Ensure it's actually running. |
+| `403 Forbidden (50001 Missing Access)` on startup (command sync) | The bot was invited without the `applications.commands` scope. Re-invite it (Developer Portal → OAuth2 → URL Generator) with **both** `bot` and `applications.commands` scopes, authorize it to your server, then restart. |
 | `/setup` says Community is required | Enable Community (step 6), then retry. |
 | Bot "can't create/assign roles" or 403 errors | Drag the **bot's role above** the roles it manages (step 5.8) and confirm its permissions. |
 | Database "Unavailable" in `/system status` | Check internet, and that `DATABASE_URL` host/password are correct (URL-encode special chars). Supabase project must be running. |
