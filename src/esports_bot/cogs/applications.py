@@ -133,6 +133,25 @@ class ApplicationsCog(commands.Cog):
         default_permissions=discord.Permissions(manage_guild=True), guild_only=True,
     )
 
+    async def _grant_event_role(
+        self, guild: discord.Guild, event_id: int, purpose: str, discord_user_id: int
+    ) -> None:
+        """Grant a base event role (e.g. role_applicant) to a member."""
+        async with db.session_scope() as s:
+            resources = DiscordResourceService(
+                DiscordResourceGateway(guild), SqlResourceRepository(s)
+            )
+            role_id = await resources.find(
+                event_id, ResourceOwnerType.SYSTEM, None, purpose
+            )
+        member = guild.get_member(discord_user_id)
+        role = guild.get_role(role_id) if role_id else None
+        if member and role and role not in member.roles:
+            try:
+                await member.add_roles(role, reason="Application approved -> Applicant")
+            except discord.HTTPException:
+                pass
+
     async def _notify(self, guild: discord.Guild, discord_user_id: int, text: str) -> None:
         member = guild.get_member(discord_user_id)
         if member:
@@ -157,6 +176,7 @@ class ApplicationsCog(commands.Cog):
                 from ..models import User
                 user = await s.get(User, app.user_id)
                 discord_id = user.discord_user_id
+                event_id = event.id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
@@ -166,6 +186,8 @@ class ApplicationsCog(commands.Cog):
                 f"✅ Application #{application_id} approved",
                 f"by {interaction.user.mention}", colour=discord.Colour.green(),
             )
+        # Promote Audience -> Applicant by granting the Applicant Discord role.
+        await self._grant_event_role(interaction.guild, event_id, "role_applicant", discord_id)
         await self._notify(interaction.guild, discord_id, "✅ Your application was approved!")
         await interaction.followup.send(f"Approved application #{application_id}.", ephemeral=True)
 

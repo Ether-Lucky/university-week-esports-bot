@@ -29,10 +29,12 @@ def test_staff_channel_hidden_from_everyone() -> None:
     assert AUDIENCE not in ow and APPLICANT not in ow
 
 
-def test_apply_channel_applicant_can_send_everyone_cannot_see() -> None:
+def test_apply_channel_visible_to_audience_hidden_from_everyone() -> None:
     ow = overwrites_for("ch_apply")
     assert ow[EVERYONE].view is False
-    assert ow[APPLICANT].view is True and ow[APPLICANT].send is True
+    # Audience (the starting role) must see #apply to press the Apply button.
+    assert ow[AUDIENCE].view is True
+    assert ow[APPLICANT].view is True
 
 
 def test_forum_audience_can_view_applicant_can_post() -> None:

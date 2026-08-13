@@ -72,7 +72,7 @@ Legend: **V**=view, **R**=read history, **S**=send/interact, **C**=connect(voice
 | Channel | Audience | Applicant | Player | Committee | OIC/FIC | Head |
 |---|---|---|---|---|---|---|
 | #verify | V/S (before role) | — | — | V | V | V |
-| #apply | — | V/S | V | V/S | V/S | V/S |
+| #apply | V | V | V | V/S | V/S | V/S |
 | #announcements | V/R | V/R | V/R | V/R/S | V/R/S | V/R/S |
 | game #general | V/R | V/R/S | V/R/S | V/R/S | V/R/S | V/R/S |
 | game team-forum | V/R | V/R/**S(Join)** | V/R | V/R/S | V/R/S | V/R/S |

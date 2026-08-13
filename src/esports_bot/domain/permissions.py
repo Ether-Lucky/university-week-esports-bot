@@ -56,9 +56,12 @@ def _archetypes() -> dict[str, dict[str, PermFlags]]:
         **_staff(),
     }
 
+    # Audience must see #apply so they can press "Apply as Player" (Audience is the
+    # starting role). It's a button channel, so no one but staff needs to type.
     apply = {
         EVERYONE: PermFlags(view=False),
-        APPLICANT: PermFlags(view=True, send=True),
+        AUDIENCE: PermFlags(view=True, send=False),
+        APPLICANT: PermFlags(view=True, send=False),
         PLAYER: PermFlags(view=True, send=False),
         **_staff(),
     }
