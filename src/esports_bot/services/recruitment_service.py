@@ -42,6 +42,11 @@ class RecruitmentService:
             raise ServiceError("Only approved applicants can post a looking-for-team profile.")
         if await self.teams.active_membership(event_id, user.id) is not None:
             raise ServiceError("You are already on a team.")
+        if await self.repo.open_post_for_user(event_id, user.id) is not None:
+            raise ServiceError(
+                "You already have an active looking-for-team post. Cancel it with "
+                "`/lft cancel` before posting a new one."
+            )
         ign = validators.sanitize_name(ign, max_len=100, field="IGN")
         if main_role:
             main_role = validators.sanitize_name(main_role, max_len=100, field="Role")
@@ -57,6 +62,32 @@ class RecruitmentService:
             entity_type="recruitment_post", entity_id=post.id,
         )
         return post
+
+    async def set_forum_post(self, post_id: int, thread_id: int) -> None:
+        post = await self.repo.get_post(post_id)
+        if post is not None:
+            post.forum_post_id = thread_id
+            await self._s.flush()
+
+    async def cancel_lft(
+        self, *, event_id: int, target_discord_id: int, target_username: str,
+        actor_discord_id: int, actor_username: str, staff: bool = False,
+    ) -> int | None:
+        """Close a user's open LFT post. Returns its forum thread ID (to delete)."""
+        target = await self.users.get_or_create(target_discord_id, target_username)
+        post = await self.repo.open_post_for_user(event_id, target.id)
+        if post is None:
+            raise ServiceError("No active looking-for-team post found.")
+        thread_id = post.forum_post_id
+        post.status = RecruitmentPostStatus.CLOSED
+        await self._s.flush()
+        actor = await self.users.get_or_create(actor_discord_id, actor_username)
+        await audit.record(
+            self._s, action="recruit.cancel_lft", event_id=event_id, actor_user_id=actor.id,
+            entity_type="recruitment_post", entity_id=post.id,
+            after={"by_staff": staff, "target": target.id},
+        )
+        return thread_id
 
     async def recruit(
         self, *, event_id: int, team_id: int, target_discord_id: int, target_username: str,

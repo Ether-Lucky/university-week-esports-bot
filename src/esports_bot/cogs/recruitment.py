@@ -18,6 +18,7 @@ from ..repositories.core import EventRepository, UserRepository
 from ..repositories.teams import TeamRepository
 from ..services.errors import ServiceError
 from ..services.recruitment_service import RecruitmentService
+from .checks import is_staff
 
 
 class RecruitButton(
@@ -87,6 +88,72 @@ class RecruitmentCog(commands.Cog):
         self.bot = bot
 
     recruit = app_commands.Group(name="recruit", description="Recruitment.", guild_only=True)
+    lft = app_commands.Group(
+        name="lft", description="Looking-for-team posts.", guild_only=True
+    )
+
+    async def _delete_thread(self, guild: discord.Guild, thread_id: int | None) -> None:
+        if thread_id is None:
+            return
+        thread = guild.get_thread(thread_id)
+        if thread is None:
+            try:
+                thread = await guild.fetch_channel(thread_id)
+            except discord.HTTPException:
+                return
+        try:
+            await thread.delete()
+        except discord.HTTPException:
+            pass
+
+    @lft.command(name="cancel", description="Cancel your own looking-for-team post.")
+    async def cancel(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None:
+                await interaction.followup.send("No active event.", ephemeral=True)
+                return
+            try:
+                thread_id = await RecruitmentService(s).cancel_lft(
+                    event_id=event.id, target_discord_id=interaction.user.id,
+                    target_username=str(interaction.user),
+                    actor_discord_id=interaction.user.id,
+                    actor_username=str(interaction.user),
+                )
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+                return
+        await self._delete_thread(interaction.guild, thread_id)
+        await interaction.followup.send(
+            "✅ Cancelled your looking-for-team post. You can post again with `/findteam`.",
+            ephemeral=True,
+        )
+
+    @lft.command(name="delete", description="Delete a member's looking-for-team post (staff).")
+    @app_commands.default_permissions(manage_guild=True)
+    async def delete(self, interaction: discord.Interaction, member: discord.Member) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            try:
+                thread_id = await RecruitmentService(s).cancel_lft(
+                    event_id=event.id, target_discord_id=member.id,
+                    target_username=str(member),
+                    actor_discord_id=interaction.user.id,
+                    actor_username=str(interaction.user), staff=True,
+                )
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+                return
+        await self._delete_thread(interaction.guild, thread_id)
+        await interaction.followup.send(
+            f"Deleted {member.mention}'s looking-for-team post. They can resubmit.",
+            ephemeral=True,
+        )
 
     @app_commands.command(
         name="findteam", description="Post yourself on the looking-for-team forum."
@@ -109,6 +176,7 @@ class RecruitmentCog(commands.Cog):
                     event_id=event.id, user_discord_id=interaction.user.id,
                     username=str(interaction.user), ign=ign, main_role=role,
                 )
+                post_id = post.id
                 game = await s.get(Game, post.game_id)
                 game_name, game_slug, event_id = game.name, slug(game.name), event.id
             except (ServiceError, ValueError) as exc:
@@ -143,6 +211,8 @@ class RecruitmentCog(commands.Cog):
                 name=f"{ign} — {role}"[:100], embed=embed, view=view
             )
             thread_mention = created.thread.mention
+            async with db.session_scope() as s:
+                await RecruitmentService(s).set_forum_post(post_id, created.thread.id)
         where = f" Add your profile & stats screenshots by replying here: {thread_mention}" \
             if thread_mention else ""
         await interaction.followup.send(
