@@ -409,7 +409,9 @@ tryout date) before `/tryout start` will run.
 - `/team create name: game: [logo:]` · `/team join team_id:` · `/team leave` · `/team view team_id:` · `/team disband team_id: [reason:]`.
 
 **Recruitment**
+- `/findteam ign:<> role:<> [note:<>]` — an applicant without a team posts themselves on their game's **looking-for-team forum**, with a **Recruit** button leaders can press.
 - `/recruit player member:` (leader) · `/recruit accept request_id:` · `/recruit decline request_id:`.
+- Teams also auto-post to the **team forum** with a **Join Team** button when created.
 
 **Mechanics & tournament** (staff)
 - `/mechanics create game: title: description:` · `/mechanics publish game:` · `/tournament set game: url:`.

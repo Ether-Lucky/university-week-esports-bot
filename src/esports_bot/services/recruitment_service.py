@@ -26,22 +26,27 @@ class RecruitmentService:
         self.teams = TeamRepository(session)
 
     async def create_lft_post(
-        self, *, event_id: int, game_id: int, user_discord_id: int, username: str,
-        ign: str, main_role: str | None, profile_url: str | None, stats_url: str | None,
+        self, *, event_id: int, user_discord_id: int, username: str,
+        ign: str, main_role: str | None, profile_url: str | None = None,
+        stats_url: str | None = None,
     ) -> RecruitmentPost:
+        """The game is taken from the applicant's approved application."""
         event = await self.events.get(event_id)
         if event is None or event.state not in (
             EventState.APPLICATIONS_OPEN, EventState.TEAM_FORMATION
         ):
             raise ServiceError("Team formation is not open right now.")
         user = await self.users.get_or_create(user_discord_id, username)
-        if await self.teams.approved_application(event_id, user.id) is None:
+        application = await self.teams.approved_application(event_id, user.id)
+        if application is None:
             raise ServiceError("Only approved applicants can post a looking-for-team profile.")
         if await self.teams.active_membership(event_id, user.id) is not None:
             raise ServiceError("You are already on a team.")
         ign = validators.sanitize_name(ign, max_len=100, field="IGN")
+        if main_role:
+            main_role = validators.sanitize_name(main_role, max_len=100, field="Role")
         post = RecruitmentPost(
-            event_id=event_id, game_id=game_id, user_id=user.id, ign=ign,
+            event_id=event_id, game_id=application.game_id, user_id=user.id, ign=ign,
             main_role=main_role, profile_screenshot_url=profile_url,
             stats_screenshot_url=stats_url, status=RecruitmentPostStatus.OPEN,
         )
