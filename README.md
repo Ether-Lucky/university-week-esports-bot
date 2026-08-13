@@ -361,7 +361,12 @@ tryout date) before `/tryout start` will run.
 
 **Setup & event**
 - `/setup preview` · `/setup backup` · `/setup confirm token:` — build the server (Head).
-- `/event create …` · `/event configure add-game …` · `/event advance` · `/event status` — Head.
+- `/event create …` · `/event configure add-game …` · `/event configure remove-game game:` · `/event advance` · `/event status` — Head.
+
+> **Fixing a misinput:** `/event configure remove-game game:<name>` removes a wrongly-added game
+> (DRAFT/SETUP only) and deletes its Discord channels. It refuses if applications/teams already
+> use that game. And `/event create` **never** deletes data — it's blocked while an event is active
+> and only ever adds a new event record, so nothing gets wiped.
 
 **Staff & system**
 - `/staff add member: role:` · `/staff remove member:` · `/staff list`.

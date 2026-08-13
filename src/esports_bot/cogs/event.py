@@ -7,7 +7,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..bot import EsportsBot
+from ..domain.enums import ResourceOwnerType, ResourceStatus
 from ..infra import db
+from ..infra.discord_gateway import DiscordResourceGateway
+from ..infra.discord_resources import DiscordResourceService
+from ..infra.resource_repository import SqlResourceRepository
 from ..repositories.core import EventRepository
 from ..services.errors import ServiceError
 from ..services.event_service import EventService
@@ -93,6 +97,48 @@ class EventCog(commands.Cog):
         except (ServiceError, ValueError) as exc:
             msg = f"Could not add game: {exc}"
         await interaction.followup.send(msg, ephemeral=True)
+
+    @configure.command(name="remove-game", description="Remove a misconfigured game (DRAFT/SETUP).")
+    @app_commands.describe(game="The exact game name to remove")
+    async def remove_game(self, interaction: discord.Interaction, game: str) -> None:
+        if not is_head_or_owner(interaction, self.bot.settings):
+            await interaction.response.send_message("Head only.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        event_id = await self._active_event_id(interaction.guild_id)
+        if event_id is None:
+            await interaction.followup.send("No active event.", ephemeral=True)
+            return
+        try:
+            async with db.session_scope() as s:
+                game_slug = await EventService(s).remove_game(
+                    event_id=event_id, game_name=game,
+                    actor_discord_id=interaction.user.id, actor_username=str(interaction.user),
+                )
+        except (ServiceError, ValueError) as exc:
+            await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+            return
+        removed = await self._teardown_game(interaction.guild, event_id, game_slug)
+        await interaction.followup.send(
+            f"Removed **{game}** from the event and deleted {removed} of its Discord channels.",
+            ephemeral=True,
+        )
+
+    async def _teardown_game(self, guild: discord.Guild, event_id: int, game_slug: str) -> int:
+        """Delete the Discord category/channels that belong to a removed game."""
+        removed = 0
+        async with db.session_scope() as s:
+            repo = SqlResourceRepository(s)
+            resources = DiscordResourceService(DiscordResourceGateway(guild), repo)
+            rows = [
+                r for r in await repo.list_by_status(event_id, ResourceStatus.CREATED)
+                if r.owner_type == ResourceOwnerType.GAME and r.purpose.endswith(f":{game_slug}")
+            ]
+            # Delete channels before the category.
+            for row in sorted(rows, key=lambda r: r.purpose.startswith("cat_")):
+                await resources.delete(row)
+                removed += 1
+        return removed
 
     @event.command(name="advance", description="Advance the event to the next lifecycle state.")
     async def advance(self, interaction: discord.Interaction) -> None:

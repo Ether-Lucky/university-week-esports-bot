@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import states, validators
 from ..domain.enums import ApplicationStatus, EventState, TeamStatus
+from ..domain.server_blueprint import slug
 from ..infra import audit
-from ..models import Application, Event, Team
+from ..models import Application, Event, Game, Mechanics, Team, Tournament
 from ..repositories.core import EventRepository, GameRepository, UserRepository
 from .errors import ServiceError
 
@@ -91,6 +92,57 @@ class EventService:
             after={"game": game_name, "roster_size": roster_size},
         )
         return eg
+
+    async def remove_game(
+        self, *, event_id: int, game_name: str, actor_discord_id: int, actor_username: str
+    ) -> str:
+        """Remove a misconfigured game from the event (DRAFT/SETUP only).
+
+        Refuses if any applications or teams already reference the game. Returns the
+        game's slug so the caller can tear down its Discord resources.
+        """
+        event = await self._require_event(event_id)
+        if event.state not in _CONFIGURABLE_STATES:
+            raise ServiceError(
+                f"Games can only be removed while in DRAFT/SETUP (now {event.state})."
+            )
+        game_name = validators.sanitize_name(game_name, max_len=100, field="Game name")
+        game = (
+            await self._s.execute(select(Game).where(Game.name == game_name))
+        ).scalar_one_or_none()
+        if game is None:
+            raise ServiceError(f"No game named '{game_name}'.")
+        eg = await self.games.get_event_game(event_id, game.id)
+        if eg is None:
+            raise ServiceError(f"{game_name} is not configured for this event.")
+
+        app_count = await self._s.scalar(
+            select(func.count()).select_from(Application).where(
+                Application.event_id == event_id, Application.game_id == game.id
+            )
+        )
+        team_count = await self._s.scalar(
+            select(func.count()).select_from(Team).where(
+                Team.event_id == event_id, Team.game_id == game.id
+            )
+        )
+        if (app_count or 0) > 0 or (team_count or 0) > 0:
+            raise ServiceError(
+                "Cannot remove a game that already has applications or teams. "
+                "Handle those first."
+            )
+
+        # Remove dependent config, then the event-game link (the games catalog row stays).
+        await self._s.execute(delete(Mechanics).where(Mechanics.event_game_id == eg.id))
+        await self._s.execute(delete(Tournament).where(Tournament.event_game_id == eg.id))
+        await self._s.delete(eg)
+        await self._s.flush()
+        actor = await self.users.get_or_create(actor_discord_id, actor_username)
+        await audit.record(
+            self._s, action="event.remove_game", event_id=event_id, actor_user_id=actor.id,
+            entity_type="game", entity_id=game.id, before={"game": game_name},
+        )
+        return slug(game_name)
 
     async def set_schedule(
         self, *, event_id: int, actor_discord_id: int, actor_username: str,
