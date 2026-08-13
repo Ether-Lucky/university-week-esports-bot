@@ -181,8 +181,9 @@ verification and hands out a "verified" role; our bot then gives those members t
    Note the **host** (`aws-0-<region>.pooler.supabase.com`) and confirm the **port `5432`** (session
    mode — best for a single always-on bot). You'll build two URLs from this in the next step.
 
-> For this project the reference is `omeqpipnsguuzdfxqpqg` and region `ap-south-1`, so the host is
-> `aws-0-ap-south-1.pooler.supabase.com`. Yours may differ — always copy it from your dashboard.
+> The host looks like `aws-0-<region>.pooler.supabase.com` (e.g. `aws-0-ap-southeast-1...`), and
+> `<ref>` is your project reference. Always copy the exact host, port, and ref from **your** Supabase
+> dashboard — don't guess them.
 
 ---
 
