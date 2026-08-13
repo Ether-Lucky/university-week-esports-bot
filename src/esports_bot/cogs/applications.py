@@ -268,6 +268,61 @@ class ApplicationsCog(commands.Cog):
             "\n".join(lines) if lines else "No pending applications.", ephemeral=True
         )
 
+    @application.command(
+        name="backfill-roles",
+        description="Grant Applicant + per-game roles to all already-approved applicants.",
+    )
+    async def backfill_roles(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        from sqlalchemy import select
+
+        from ..models import Application, Game, User
+
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            resources = DiscordResourceService(
+                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
+            )
+            role_map = await resources.role_map(event.id)
+            res = await s.execute(
+                select(User.discord_user_id, Game.name)
+                .select_from(Application)
+                .join(User, Application.user_id == User.id)
+                .join(Game, Application.game_id == Game.id)
+                .where(
+                    Application.event_id == event.id,
+                    Application.status.in_(
+                        [ApplicationStatus.APPROVED, ApplicationStatus.ASSIGNED_TO_TEAM]
+                    ),
+                )
+            )
+            rows = res.all()
+
+        applicant_role = interaction.guild.get_role(role_map.get("role_applicant", 0))
+        granted = 0
+        for discord_id, game_name in rows:
+            member = interaction.guild.get_member(discord_id)
+            if member is None:
+                continue
+            to_add = []
+            if applicant_role and applicant_role not in member.roles:
+                to_add.append(applicant_role)
+            game_role = interaction.guild.get_role(role_map.get(f"game_role:{slug(game_name)}", 0))
+            if game_role and game_role not in member.roles:
+                to_add.append(game_role)
+            if to_add:
+                try:
+                    await member.add_roles(*to_add, reason="Backfill approved-applicant roles")
+                    granted += 1
+                except discord.HTTPException:
+                    pass
+        await interaction.followup.send(
+            f"Backfilled roles for {granted} approved applicants.", ephemeral=True
+        )
+
     @application.command(name="post-button", description="Post the Apply button in this channel.")
     async def post_button(self, interaction: discord.Interaction) -> None:
         async with db.session_scope() as s:

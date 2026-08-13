@@ -400,6 +400,7 @@ tryout date) before `/tryout start` will run.
 
 **Applications** (staff review)
 - Apply button (members) · `/application list` · `/application approve id:` · `/application reject id: reason:` · `/application post-button`.
+- `/application backfill-roles` — hand the **Applicant + per-game role** to everyone already approved (use once after adding per-game roles, or anytime to fix missing roles). Staff only.
 - `/switch-game game:<name>` — an applicant changes which game their application is for (before joining a team). Their per-game role moves with them.
 
 > **Per-game channels:** setup creates one role per game (e.g. `@Valorant`), granted to that game's approved applicants. Each game's chat/forums let **only that game's participants post** — others can read but not send. So applicants can't message in games they didn't apply for.
