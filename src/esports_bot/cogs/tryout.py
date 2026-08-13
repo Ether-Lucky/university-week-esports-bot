@@ -83,9 +83,41 @@ class TryoutCog(commands.Cog):
                 actor_username=str(interaction.user), tryout_at=local_dt.astimezone(UTC),
             )
             when = local_dt.strftime("%A, %d %b %Y at %I:%M %p")
-            tzname = event.timezone
+            tzname, event_id = event.timezone, event.id
+        await self._announce_tryout(interaction.guild, event_id, when, tzname)
         await interaction.followup.send(
-            f"✅ Tryout scheduled for **{when}** ({tzname}).", ephemeral=True
+            f"✅ Tryout scheduled for **{when}** ({tzname}) and announced.", ephemeral=True
+        )
+
+    async def _announce_tryout(
+        self, guild: discord.Guild, event_id: int, when: str, tzname: str
+    ) -> None:
+        """Post the tryout schedule in #apply and ping Audience."""
+        async with db.session_scope() as s:
+            resources = DiscordResourceService(
+                DiscordResourceGateway(guild), SqlResourceRepository(s)
+            )
+            apply_id = await resources.find(
+                event_id, ResourceOwnerType.SYSTEM, None, "ch_apply"
+            )
+            audience_id = await resources.find(
+                event_id, ResourceOwnerType.SYSTEM, None, "role_audience"
+            )
+        channel = guild.get_channel(apply_id) if apply_id else None
+        if channel is None:
+            return
+        role = guild.get_role(audience_id) if audience_id else None
+        embed = discord.Embed(
+            title="📅 Tryout Schedule",
+            description=(
+                f"The tryout is scheduled for **{when}** ({tzname}).\n\n"
+                "Get your team ready, and **check in** with `/tryout checkin` before it begins!"
+            ),
+            colour=discord.Colour.gold(),
+        )
+        await channel.send(
+            content=role.mention if role else None, embed=embed,
+            allowed_mentions=discord.AllowedMentions(roles=True),
         )
 
     @tryout.command(name="checkin", description="Check yourself in for the tryout.")
