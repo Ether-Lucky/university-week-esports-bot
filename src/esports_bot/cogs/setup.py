@@ -149,7 +149,7 @@ class SetupCog(commands.Cog):
             if ev is None:
                 return None, []
             games = await GameRepository(s).list_games_for_event(ev.id)
-            return ev.id, [slug(g.name) for g in games]
+            return ev.id, [(slug(g.name), g.name) for g in games]
 
     @setup_group.command(name="preview", description="Preview what setup will preserve vs remove.")
     async def preview(self, interaction: discord.Interaction) -> None:
@@ -157,7 +157,7 @@ class SetupCog(commands.Cog):
             await interaction.response.send_message("E-Sports Head only.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
-        event_id, shorts = await self._event_and_games(interaction.guild_id)
+        event_id, games = await self._event_and_games(interaction.guild_id)
         if event_id is None:
             await interaction.followup.send(
                 "No active event. Run `/event create` and add games first.", ephemeral=True
@@ -168,7 +168,7 @@ class SetupCog(commands.Cog):
         keep_ids = protected_channel_ids(interaction.guild) | await self._tracked_resource_ids(
             event_id
         )
-        preview = plan_preview(snap, num_games=len(shorts), always_preserve_ids=keep_ids)
+        preview = plan_preview(snap, num_games=len(games), always_preserve_ids=keep_ids)
         token = secrets.token_hex(3)
         self._tokens[(interaction.guild_id, interaction.user.id)] = token
 
@@ -179,7 +179,7 @@ class SetupCog(commands.Cog):
         )
         embed.add_field(name="Preserve", value=str(len(preview.preserve)), inline=True)
         embed.add_field(name="Remove", value=str(len(preview.remove)), inline=True)
-        embed.add_field(name="Games", value=str(len(shorts)), inline=True)
+        embed.add_field(name="Games", value=str(len(games)), inline=True)
         embed.add_field(
             name="Community",
             value="✅ enabled" if preview.community_ok else "❌ required",
@@ -326,16 +326,17 @@ class SetupCog(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True)
 
-        event_id, shorts = await self._event_and_games(interaction.guild_id)
+        event_id, games = await self._event_and_games(interaction.guild_id)
         if event_id is None:
             await interaction.followup.send("No active event.", ephemeral=True)
             return
+        shorts = [s for s, _ in games]
 
         snap = snapshot_guild(interaction.guild)
         keep_ids = protected_channel_ids(interaction.guild) | await self._tracked_resource_ids(
             event_id
         )
-        preview = plan_preview(snap, num_games=len(shorts), always_preserve_ids=keep_ids)
+        preview = plan_preview(snap, num_games=len(games), always_preserve_ids=keep_ids)
         if not preview.can_proceed:
             await interaction.followup.send(
                 "Cannot proceed:\n" + "\n".join(preview.warnings), ephemeral=True
@@ -364,7 +365,7 @@ class SetupCog(commands.Cog):
                     "role_head", head_id,
                 )
             removed = await setup_service.remove_preexisting(preview.remove)
-            report = await setup_service.build(event_id, shorts)
+            report = await setup_service.build(event_id, games)
             applied, failed = await setup_service.apply_permissions(event_id, shorts)
 
         self._tokens.pop((interaction.guild_id, interaction.user.id), None)

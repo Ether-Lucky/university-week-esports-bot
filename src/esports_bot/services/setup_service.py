@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass, field
 
 from ..domain.enums import ResourceOwnerType, ResourceType
-from ..domain.permissions import EVERYONE, overwrites_for
+from ..domain.permissions import EVERYONE, GAME_ROLE, overwrites_for
 from ..domain.server_blueprint import CategorySpec, full_blueprint
 from ..infra.discord_gateway import ResourceGateway
 from ..infra.discord_resources import DiscordResourceService
@@ -43,29 +43,41 @@ class SetupService:
         self._res = resources
         self._gw = gateway
 
-    async def build(self, event_id: int, game_shorts: list[str]) -> BuildReport:
+    async def build(self, event_id: int, games: list[tuple[str, str]]) -> BuildReport:
+        """games: list of (slug, display_name). Creates base roles, one role per
+        game (so channel access can be scoped per game), and all channels."""
         report = BuildReport()
+        game_shorts = [slug for slug, _ in games]
         roles, categories = full_blueprint(game_shorts)
 
         for role in roles:
-            # Reuse an existing role of the same name (e.g. from a previous run)
-            # instead of creating a duplicate; the bot often can't delete old roles.
-            existing = self._gw.find_role_by_name(role.name)
-            if existing is not None:
-                await self._res.register_existing(
-                    event_id, ResourceType.ROLE, ResourceOwnerType.SYSTEM, None,
-                    role.purpose, existing,
-                )
-            else:
-                await self._res.ensure_role(
-                    event_id, ResourceOwnerType.SYSTEM, None, role.purpose, role.name,
-                    hoist=role.hoist,
-                )
+            await self._ensure_role_adopting(event_id, role.purpose, role.name, role.hoist)
+            report.roles += 1
+
+        # One role per game, named after the game (e.g. "Valorant").
+        for game_slug, game_name in games:
+            await self._ensure_role_adopting(
+                event_id, f"{GAME_ROLE}:{game_slug}", game_name, hoist=False
+            )
             report.roles += 1
 
         for cat in categories:
             await self._build_category(event_id, cat, report)
         return report
+
+    async def _ensure_role_adopting(
+        self, event_id: int, purpose: str, name: str, hoist: bool
+    ) -> None:
+        # Reuse an existing role of the same name instead of creating a duplicate.
+        existing = self._gw.find_role_by_name(name)
+        if existing is not None:
+            await self._res.register_existing(
+                event_id, ResourceType.ROLE, ResourceOwnerType.SYSTEM, None, purpose, existing
+            )
+        else:
+            await self._res.ensure_role(
+                event_id, ResourceOwnerType.SYSTEM, None, purpose, name, hoist=hoist
+            )
 
     async def _build_category(
         self, event_id: int, cat: CategorySpec, report: BuildReport
@@ -132,6 +144,13 @@ class SetupService:
         for role_key, flags in overwrites_for(purpose).items():
             if role_key == EVERYONE:
                 entries.append((None, flags))
+            elif role_key == GAME_ROLE:
+                # Resolve to this channel's game role, e.g. game_general:valorant
+                # -> game_role:valorant.
+                game_slug = purpose.split(":", 1)[1] if ":" in purpose else None
+                gid = roles.get(f"{GAME_ROLE}:{game_slug}") if game_slug else None
+                if gid is not None:
+                    entries.append((gid, flags))
             elif role_key in roles:
                 entries.append((roles[role_key], flags))
         await self._gw.set_overwrites(channel_id, entries)

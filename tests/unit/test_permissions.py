@@ -7,6 +7,7 @@ from esports_bot.domain.permissions import (
     AUDIENCE,
     COMMITTEE,
     EVERYONE,
+    GAME_ROLE,
     PLAYER,
     archetype_for,
     overwrites_for,
@@ -37,11 +38,20 @@ def test_apply_channel_visible_to_audience_hidden_from_everyone() -> None:
     assert ow[APPLICANT].view is True
 
 
-def test_forum_audience_can_view_applicant_can_post() -> None:
+def test_forum_audience_reads_only_game_role_posts() -> None:
     ow = overwrites_for("game_team_forum:valorant")
     assert ow[EVERYONE].view is False
     assert ow[AUDIENCE].view is True and ow[AUDIENCE].send is False
-    assert ow[APPLICANT].send is True
+    # Only this game's per-game role can post; the global Applicant role is not used.
+    assert ow[GAME_ROLE].view is True and ow[GAME_ROLE].send is True
+    assert APPLICANT not in ow
+
+
+def test_game_general_scoped_to_game_role() -> None:
+    ow = overwrites_for("game_general:valorant")
+    assert ow[EVERYONE].view is False
+    assert ow[AUDIENCE].view is True and ow[AUDIENCE].send is False
+    assert ow[GAME_ROLE].send is True
 
 
 def test_players_channel_excludes_audience_and_applicant() -> None:

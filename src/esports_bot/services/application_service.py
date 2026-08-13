@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain import states, validators
 from ..domain.enums import ApplicationStatus, EventState
+from ..domain.server_blueprint import slug
 from ..infra import audit
-from ..models import Application
+from ..models import Application, Game
 from ..repositories.applications import ApplicationRepository
 from ..repositories.core import EventRepository, GameRepository, UserRepository
+from ..repositories.teams import TeamRepository
 from .errors import ServiceError
+
+_TEAM_OR_APP_STATES = {EventState.APPLICATIONS_OPEN, EventState.TEAM_FORMATION}
 
 
 class ApplicationService:
@@ -110,6 +115,44 @@ class ApplicationService:
             application_id, ApplicationStatus.REJECTED, reason=reason.strip(),
             actor_discord_id=actor_discord_id, actor_username=actor_username,
         )
+
+    async def switch_game(
+        self, *, event_id: int, discord_user_id: int, username: str, new_game_name: str
+    ) -> tuple[str | None, str]:
+        """Change the applicant's game. Returns (old_game_slug, new_game_slug)."""
+        event = await self.events.get(event_id)
+        if event is None or event.state not in _TEAM_OR_APP_STATES:
+            raise ServiceError("You can't switch games right now.")
+        user = await self.users.get_or_create(discord_user_id, username)
+        app = await self.apps.active_for_user(event_id, user.id)
+        if app is None:
+            raise ServiceError("You don't have an active application.")
+        if await TeamRepository(self._s).active_membership(event_id, user.id) is not None:
+            raise ServiceError("Leave your team before switching games.")
+        new_game_name = validators.sanitize_name(new_game_name, max_len=100, field="Game name")
+        game = (
+            await self._s.execute(select(Game).where(Game.name == new_game_name))
+        ).scalar_one_or_none()
+        if game is None:
+            raise ServiceError(f"No game named '{new_game_name}'.")
+        if await self.games.get_event_game(event_id, game.id) is None:
+            raise ServiceError("That game is not part of this event.")
+        if app.game_id == game.id:
+            raise ServiceError("You already applied for that game.")
+
+        old_game = await self._s.get(Game, app.game_id)
+        old_slug = slug(old_game.name) if old_game else None
+        app.game_id = game.id
+        await self._s.flush()
+        self.apps.add_history(
+            app.id, app.status, app.status, f"switched game to {game.name}", user.id
+        )
+        await audit.record(
+            self._s, action="application.switch_game", event_id=event_id, actor_user_id=user.id,
+            entity_type="application", entity_id=app.id,
+            before={"game": old_game.name if old_game else None}, after={"game": game.name},
+        )
+        return old_slug, slug(game.name)
 
     async def withdraw(self, application_id: int, *, actor_discord_id: int, actor_username: str):
         return await self._transition(

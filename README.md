@@ -400,6 +400,9 @@ tryout date) before `/tryout start` will run.
 
 **Applications** (staff review)
 - Apply button (members) · `/application list` · `/application approve id:` · `/application reject id: reason:` · `/application post-button`.
+- `/switch-game game:<name>` — an applicant changes which game their application is for (before joining a team). Their per-game role moves with them.
+
+> **Per-game channels:** setup creates one role per game (e.g. `@Valorant`), granted to that game's approved applicants. Each game's chat/forums let **only that game's participants post** — others can read but not send. So applicants can't message in games they didn't apply for.
 
 **Teams**
 - `/team create name: game: [logo:]` · `/team join team_id:` · `/team leave` · `/team view team_id:` · `/team disband team_id: [reason:]`.

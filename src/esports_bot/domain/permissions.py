@@ -18,6 +18,8 @@ FIC = "role_fic"
 PLAYER = "role_player"
 APPLICANT = "role_applicant"
 AUDIENCE = "role_audience"
+# Placeholder resolved per channel to that game's role (e.g. game_role:valorant).
+GAME_ROLE = "game_role"
 
 STAFF_KEYS = (HEAD, COMMITTEE, OIC, FIC)
 
@@ -48,11 +50,11 @@ def _archetypes() -> dict[str, dict[str, PermFlags]]:
         **_staff(),
     }
 
+    # Only this game's participants (the per-game role) may post; others can read.
     game_general = {
         EVERYONE: PermFlags(view=False),
         AUDIENCE: PermFlags(view=True, send=False),
-        APPLICANT: PermFlags(view=True, send=True),
-        PLAYER: PermFlags(view=True, send=True),
+        GAME_ROLE: PermFlags(view=True, send=True),
         **_staff(),
     }
 
@@ -66,11 +68,11 @@ def _archetypes() -> dict[str, dict[str, PermFlags]]:
         **_staff(),
     }
 
+    # Team / looking-for-team forums: only this game's participants interact.
     forum = {
         EVERYONE: PermFlags(view=False),
         AUDIENCE: PermFlags(view=True, send=False),
-        APPLICANT: PermFlags(view=True, send=True),
-        PLAYER: PermFlags(view=True, send=False),
+        GAME_ROLE: PermFlags(view=True, send=True),
         **_staff(),
     }
 

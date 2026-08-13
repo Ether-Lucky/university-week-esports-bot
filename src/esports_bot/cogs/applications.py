@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from ..bot import EsportsBot
 from ..domain.enums import ApplicationStatus, ResourceOwnerType
+from ..domain.server_blueprint import slug
 from ..infra import db
 from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
@@ -153,6 +154,27 @@ class ApplicationsCog(commands.Cog):
             except discord.HTTPException:
                 pass
 
+    async def _revoke_event_role(
+        self, guild: discord.Guild, event_id: int, purpose: str, discord_user_id: int
+    ) -> bool:
+        """Remove a role from a member. Returns True if they actually had it."""
+        async with db.session_scope() as s:
+            resources = DiscordResourceService(
+                DiscordResourceGateway(guild), SqlResourceRepository(s)
+            )
+            role_id = await resources.find(
+                event_id, ResourceOwnerType.SYSTEM, None, purpose
+            )
+        member = guild.get_member(discord_user_id)
+        role = guild.get_role(role_id) if role_id else None
+        if member and role and role in member.roles:
+            try:
+                await member.remove_roles(role, reason="Switched game")
+                return True
+            except discord.HTTPException:
+                pass
+        return False
+
     async def _notify(self, guild: discord.Guild, discord_user_id: int, text: str) -> None:
         member = guild.get_member(discord_user_id)
         if member:
@@ -174,10 +196,12 @@ class ApplicationsCog(commands.Cog):
                     application_id, actor_discord_id=interaction.user.id,
                     actor_username=str(interaction.user),
                 )
-                from ..models import User
+                from ..models import Game, User
                 user = await s.get(User, app.user_id)
                 discord_id = user.discord_user_id
                 event_id = event.id
+                game = await s.get(Game, app.game_id)
+                game_slug = slug(game.name)
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
@@ -187,8 +211,11 @@ class ApplicationsCog(commands.Cog):
                 f"✅ Application #{application_id} approved",
                 f"by {interaction.user.mention}", colour=discord.Colour.green(),
             )
-        # Promote Audience -> Applicant by granting the Applicant Discord role.
+        # Promote Audience -> Applicant, and give the per-game role for their game.
         await self._grant_event_role(interaction.guild, event_id, "role_applicant", discord_id)
+        await self._grant_event_role(
+            interaction.guild, event_id, f"game_role:{game_slug}", discord_id
+        )
         await self._notify(interaction.guild, discord_id, "✅ Your application was approved!")
         await interaction.followup.send(f"Approved application #{application_id}.", ephemeral=True)
 
@@ -258,6 +285,41 @@ class ApplicationsCog(commands.Cog):
         )
         await interaction.channel.send(embed=embed, view=ApplyView(self.bot))
         await interaction.response.send_message("Posted the apply button.", ephemeral=True)
+
+    @app_commands.command(
+        name="switch-game", description="Change which game your application is for."
+    )
+    @app_commands.guild_only()
+    @app_commands.describe(game="The exact game name to switch your application to")
+    async def switch_game(self, interaction: discord.Interaction, game: str) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None:
+                await interaction.followup.send("No active event.", ephemeral=True)
+                return
+            try:
+                old_slug, new_slug = await ApplicationService(s).switch_game(
+                    event_id=event.id, discord_user_id=interaction.user.id,
+                    username=str(interaction.user), new_game_name=game,
+                )
+                event_id = event.id
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+                return
+        # Move the per-game role only if they already had it (i.e. were approved).
+        removed = False
+        if old_slug:
+            removed = await self._revoke_event_role(
+                interaction.guild, event_id, f"game_role:{old_slug}", interaction.user.id
+            )
+        if removed:
+            await self._grant_event_role(
+                interaction.guild, event_id, f"game_role:{new_slug}", interaction.user.id
+            )
+        await interaction.followup.send(
+            f"✅ Switched your application to **{game}**.", ephemeral=True
+        )
 
 
 async def setup(bot: EsportsBot) -> None:

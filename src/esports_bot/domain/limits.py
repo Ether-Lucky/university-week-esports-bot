@@ -61,7 +61,7 @@ def project_setup(
     expected_teams_total: int = 0,
 ) -> Projection:
     """Project resource usage after setup + expected teams; collect violations."""
-    roles = existing_roles + BASE_ROLES_CREATED + expected_teams_total
+    roles = existing_roles + BASE_ROLES_CREATED + num_games + expected_teams_total
     categories = existing_categories + BASE_CATEGORIES + num_games
     channels = (
         existing_channels

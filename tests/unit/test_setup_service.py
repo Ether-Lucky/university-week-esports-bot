@@ -98,9 +98,11 @@ def svc():
 
 async def test_build_creates_full_structure(svc) -> None:
     service, gw = svc
-    report = await service.build(1, ["valorant", "mobile-legends"])
-    # 6 base roles.
-    assert report.roles == 6
+    report = await service.build(
+        1, [("valorant", "Valorant"), ("mobile-legends", "Mobile Legends")]
+    )
+    # 6 base roles + 1 role per game (2).
+    assert report.roles == 8
     # 4 base categories + 2 game categories.
     assert report.categories == 6
     # 16 base channels + 2 games * 9 = 34.
@@ -110,9 +112,9 @@ async def test_build_creates_full_structure(svc) -> None:
 
 async def test_build_is_idempotent(svc) -> None:
     service, gw = svc
-    await service.build(1, ["valorant"])
+    await service.build(1, [("valorant", "Valorant")])
     calls_after_first = gw.create_calls
-    await service.build(1, ["valorant"])  # re-run: nothing new
+    await service.build(1, [("valorant", "Valorant")])  # re-run: nothing new
     assert gw.create_calls == calls_after_first
 
 
