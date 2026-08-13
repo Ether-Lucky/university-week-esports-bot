@@ -32,7 +32,7 @@ async def test_recruit_then_accept_joins_team(session) -> None:
     await svc.advance(event_id=ev.id, actor_discord_id=1, actor_username="head")  # TEAM_FORMATION
 
     team = await TeamService(session).create_team(
-        event_id=ev.id, game_id=eg.game_id, name="Gamma", logo_url=None,
+        event_id=ev.id, name="Gamma", logo_url=None,
         leader_discord_id=300, leader_username="u300",
     )
     r = RecruitmentService(session)

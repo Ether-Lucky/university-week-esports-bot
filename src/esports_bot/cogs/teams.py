@@ -81,10 +81,10 @@ class TeamsCog(commands.Cog):
             games = await GameRepository(s).list_games_for_event(event_id)
             return [(g.id, g.name) for g in games]
 
-    @team.command(name="create", description="Create a team (approved applicants).")
-    @app_commands.describe(name="Team name", game="Game", logo="Logo image URL (optional)")
+    @team.command(name="create", description="Create a team for the game you applied for.")
+    @app_commands.describe(name="Team name", logo="Logo image URL (optional)")
     async def create(
-        self, interaction: discord.Interaction, name: str, game: str, logo: str | None = None
+        self, interaction: discord.Interaction, name: str, logo: str | None = None
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         async with db.session_scope() as s:
@@ -92,24 +92,14 @@ class TeamsCog(commands.Cog):
             if event is None:
                 await interaction.followup.send("No active event.", ephemeral=True)
                 return
-            from ..repositories.core import GameRepository
-
-            game_list = await GameRepository(s).list_games_for_event(event.id)
-            games = {gm.name.lower(): gm for gm in game_list}
-            g = games.get(game.lower())
-            if g is None:
-                await interaction.followup.send(
-                    f"Unknown game. Options: {', '.join(x.name for x in games.values())}",
-                    ephemeral=True,
-                )
-                return
             try:
                 team = await TeamService(s).create_team(
-                    event_id=event.id, game_id=g.id, name=name, logo_url=logo,
+                    event_id=event.id, name=name, logo_url=logo,
                     leader_discord_id=interaction.user.id,
                     leader_username=str(interaction.user),
                 )
-                team_id, team_name, game_name, event_id = team.id, team.name, g.name, event.id
+                game = await s.get(Game, team.game_id)
+                team_id, team_name, game_name, event_id = team.id, team.name, game.name, event.id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return

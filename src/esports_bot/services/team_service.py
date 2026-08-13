@@ -36,25 +36,24 @@ class TeamService:
         return event
 
     async def create_team(
-        self, *, event_id: int, game_id: int, name: str, logo_url: str | None,
+        self, *, event_id: int, name: str, logo_url: str | None,
         leader_discord_id: int, leader_username: str, staff: bool = False,
     ) -> Team:
+        """The team's game is taken automatically from the leader's application."""
         await self._require_formation(event_id, staff=staff)
+        leader = await self.users.get_or_create(leader_discord_id, leader_username)
+        application = await self.teams.approved_application(event_id, leader.id)
+        if application is None:
+            raise ServiceError("Only approved applicants can create a team.")
+        game_id = application.game_id  # the game they applied for
         eg = await self.games.get_event_game(event_id, game_id)
         if eg is None:
-            raise ServiceError("That game is not part of this event.")
+            raise ServiceError("Your game is not configured for this event.")
         name = validators.sanitize_name(name, max_len=100, field="Team name")
         if logo_url:
             logo_url = validators.validate_https_url(logo_url, field="Logo URL")
         if await self.teams.get_by_name(event_id, game_id, name) is not None:
             raise ServiceError(f"A team named '{name}' already exists for this game.")
-
-        leader = await self.users.get_or_create(leader_discord_id, leader_username)
-        application = await self.teams.approved_application(event_id, leader.id)
-        if application is None:
-            raise ServiceError("Only approved applicants can create a team.")
-        if application.game_id != game_id:
-            raise ServiceError("You can only create a team for the game you applied for.")
         if await self.teams.active_membership(event_id, leader.id) is not None:
             raise ServiceError("You are already on a team.")
 

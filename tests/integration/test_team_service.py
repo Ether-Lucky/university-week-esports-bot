@@ -40,7 +40,7 @@ async def test_create_join_full_and_guards(session) -> None:
 
     t = TeamService(session)
     team = await t.create_team(
-        event_id=ev.id, game_id=eg.game_id, name="Alpha", logo_url=None,
+        event_id=ev.id, name="Alpha", logo_url=None,
         leader_discord_id=100, leader_username="u100",
     )
     assert team.status == TeamStatus.RECRUITING
@@ -48,7 +48,7 @@ async def test_create_join_full_and_guards(session) -> None:
     # Duplicate name refused.
     with pytest.raises(ServiceError):
         await t.create_team(
-            event_id=ev.id, game_id=eg.game_id, name="Alpha", logo_url=None,
+            event_id=ev.id, name="Alpha", logo_url=None,
             leader_discord_id=102, leader_username="u102",
         )
 
@@ -84,7 +84,7 @@ async def test_disband_frees_members(session) -> None:
 
     t = TeamService(session)
     team = await t.create_team(
-        event_id=ev.id, game_id=eg.game_id, name="Bravo", logo_url=None,
+        event_id=ev.id, name="Bravo", logo_url=None,
         leader_discord_id=200, leader_username="u200",
     )
     await t.join_team(event_id=ev.id, team_id=team.id, user_discord_id=201, username="u201")

@@ -45,12 +45,12 @@ async def test_full_lifecycle(session) -> None:
 
     ts = TeamService(session)
     team_a = await ts.create_team(
-        event_id=ev.id, game_id=eg.game_id, name="Alpha", logo_url=None,
+        event_id=ev.id, name="Alpha", logo_url=None,
         leader_discord_id=100, leader_username="u100",
     )
     await ts.join_team(event_id=ev.id, team_id=team_a.id, user_discord_id=101, username="u101")
     team_b = await ts.create_team(
-        event_id=ev.id, game_id=eg.game_id, name="Bravo", logo_url=None,
+        event_id=ev.id, name="Bravo", logo_url=None,
         leader_discord_id=102, leader_username="u102",
     )
     await ts.join_team(event_id=ev.id, team_id=team_b.id, user_discord_id=103, username="u103")
