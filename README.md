@@ -400,6 +400,7 @@ tryout date) before `/tryout start` will run.
 | `403 Forbidden (50001 Missing Access)` on startup (command sync) | The bot was invited without the `applications.commands` scope. Re-invite it (Developer Portal → OAuth2 → URL Generator) with **both** `bot` and `applications.commands` scopes, authorize it to your server, then restart. |
 | `/setup` says Community is required | Enable Community (step 6), then retry. |
 | Bot "can't create/assign roles" or 403 errors | Drag the **bot's role above** the roles it manages (step 5.8) and confirm its permissions. |
+| `403 (50013 Missing Permissions)` when applying channel permissions | The bot needs **Manage Roles** AND its role must sit **above `@E-Sports Head`**. In Server Settings → Roles, give the bot's role Manage Roles (or Administrator) and drag it to the top, then re-run `/setup preview` → `/setup confirm`. Setup now finishes and just reports how many channels it couldn't set. |
 | Database "Unavailable" in `/system status` | Check internet, and that `DATABASE_URL` host/password are correct (URL-encode special chars). Supabase project must be running. |
 | `alembic upgrade head` fails to connect | Verify `MIGRATION_DATABASE_URL` (note `+psycopg` and `?sslmode=require`) and the password encoding. |
 | `No module named esports_bot` | The venv isn't active — you're on system Python. Activate it (PowerShell `.\.venv\Scripts\Activate.ps1`, cmd `.venv\Scripts\activate.bat`) then run, or use `.venv\Scripts\python.exe -m esports_bot`. Run from the project root. |

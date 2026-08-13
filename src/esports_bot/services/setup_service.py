@@ -87,23 +87,31 @@ class SetupService:
                 )
             report.channels += 1
 
-    async def apply_permissions(self, event_id: int, game_shorts: list[str]) -> int:
-        """Apply the permission-overwrite matrix to every created channel/category."""
+    async def apply_permissions(self, event_id: int, game_shorts: list[str]) -> tuple[int, int]:
+        """Apply the permission-overwrite matrix to every created channel/category.
+
+        Returns (applied, failed). A permission failure on one channel (e.g. the bot
+        role sitting below @E-Sports Head, or missing Manage Roles) is logged and
+        skipped so setup still completes; re-running after fixing the bot's
+        permissions re-applies everything.
+        """
         roles = await self._res.role_map(event_id)
         _, categories = full_blueprint(game_shorts)
-        applied = 0
+        applied = failed = 0
         for cat in categories:
             owner = (
                 ResourceOwnerType.GAME
                 if cat.purpose.startswith("cat_game:")
                 else ResourceOwnerType.SYSTEM
             )
-            if await self._apply_one(event_id, cat.purpose, owner, roles):
-                applied += 1
-            for ch in cat.channels:
-                if await self._apply_one(event_id, ch.purpose, owner, roles):
-                    applied += 1
-        return applied
+            for purpose in (cat.purpose, *(ch.purpose for ch in cat.channels)):
+                try:
+                    if await self._apply_one(event_id, purpose, owner, roles):
+                        applied += 1
+                except Exception as exc:  # noqa: BLE001 - keep going; log what we skipped
+                    failed += 1
+                    log.warning("Could not apply permissions to %s: %s", purpose, exc)
+        return applied, failed
 
     async def _apply_one(
         self, event_id: int, purpose: str, owner: ResourceOwnerType, roles: dict[str, int]

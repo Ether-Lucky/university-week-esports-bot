@@ -222,16 +222,24 @@ class SetupCog(commands.Cog):
                 )
             removed = await setup_service.remove_preexisting(preview.remove)
             report = await setup_service.build(event_id, shorts)
-            applied = await setup_service.apply_permissions(event_id, shorts)
+            applied, failed = await setup_service.apply_permissions(event_id, shorts)
 
         self._tokens.pop((interaction.guild_id, interaction.user.id), None)
-        await interaction.followup.send(
+        msg = (
             f"Setup complete. Removed {removed} resources; created ~{report.roles} roles, "
             f"{report.categories} categories, {report.channels} channels; "
-            f"applied permissions to {applied} channels. "
-            "Run `/system health` to verify, then `/staff add` your committee.",
-            ephemeral=True,
+            f"applied permissions to {applied} channels."
         )
+        if failed:
+            msg += (
+                f"\n\n⚠️ **{failed} channels could not get their permissions** (403 Missing "
+                "Permissions). Give the bot's role **Manage Roles** and drag it **above "
+                "@E-Sports Head** in Server Settings → Roles (or grant it Administrator), "
+                "then re-run `/setup preview` → `/setup confirm` to finish applying permissions."
+            )
+        else:
+            msg += " Run `/system health`, then `/staff add` your committee."
+        await interaction.followup.send(msg, ephemeral=True)
 
 
 async def setup(bot: EsportsBot) -> None:
