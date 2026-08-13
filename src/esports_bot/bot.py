@@ -93,7 +93,7 @@ class EsportsBot(commands.Bot):
                 "likely invited WITHOUT the 'applications.commands' scope. Re-invite it via "
                 "Developer Portal -> OAuth2 -> URL Generator with BOTH the 'bot' and "
                 "'applications.commands' scopes, then restart. See README step 5. "
-                "The bot will keep running, but its slash commands won't appear until this is fixed."
+                "The bot keeps running, but its slash commands won't appear until this is fixed."
             )
         except discord.HTTPException:
             log.exception("Failed to sync slash commands; the bot will keep running.")
