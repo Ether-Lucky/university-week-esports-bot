@@ -30,7 +30,9 @@ class RecruitmentService:
         ign: str, main_role: str | None, profile_url: str | None, stats_url: str | None,
     ) -> RecruitmentPost:
         event = await self.events.get(event_id)
-        if event is None or event.state != EventState.TEAM_FORMATION:
+        if event is None or event.state not in (
+            EventState.APPLICATIONS_OPEN, EventState.TEAM_FORMATION
+        ):
             raise ServiceError("Team formation is not open right now.")
         user = await self.users.get_or_create(user_discord_id, username)
         if await self.teams.approved_application(event_id, user.id) is None:

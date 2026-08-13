@@ -14,7 +14,9 @@ from ..repositories.core import EventRepository, GameRepository, UserRepository
 from ..repositories.teams import TeamRepository
 from .errors import ServiceError
 
-_TEAM_STATES = {EventState.TEAM_FORMATION}
+# Teams can form while applications are still open AND during dedicated team
+# formation — so approved applicants can start teaming up immediately.
+_TEAM_STATES = {EventState.APPLICATIONS_OPEN, EventState.TEAM_FORMATION}
 
 
 class TeamService:
