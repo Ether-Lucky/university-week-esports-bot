@@ -66,8 +66,10 @@ def plan_preview(
     num_games: int,
     expected_teams_total: int = 0,
     preserve: PreserveConfig | None = None,
+    always_preserve_ids: set[int] | None = None,
 ) -> SetupPreview:
     cfg = preserve or PreserveConfig()
+    keep_ids = always_preserve_ids or set()
     result = SetupPreview()
 
     # Determine the preserved category id (by name) so its children are kept too.
@@ -83,10 +85,12 @@ def plan_preview(
         target = result.preserve if keep else result.remove
         target.append(("role", r.id, r.name))
 
-    # Channels: preserve the announcement channel and the preserved category + children.
+    # Channels: preserve the announcement channel, the preserved category + children,
+    # and any always-preserve IDs (e.g. Community-required Rules/Updates channels).
     for ch in snapshot.channels:
         keep = (
-            _norm(ch.name) == _norm(cfg.announcement_channel_name)
+            ch.id in keep_ids
+            or _norm(ch.name) == _norm(cfg.announcement_channel_name)
             or (ch.kind == "category" and ch.id == preserved_cat_id)
             or (ch.category_id is not None and ch.category_id == preserved_cat_id)
         )

@@ -404,6 +404,7 @@ tryout date) before `/tryout start` will run.
 | `alembic upgrade head` fails to connect | Verify `MIGRATION_DATABASE_URL` (note `+psycopg` and `?sslmode=require`) and the password encoding. |
 | `No module named esports_bot` | The venv isn't active — you're on system Python. Activate it (PowerShell `.\.venv\Scripts\Activate.ps1`, cmd `.venv\Scripts\activate.bat`) then run, or use `.venv\Scripts\python.exe -m esports_bot`. Run from the project root. |
 | A channel/role got deleted by hand | Run `/system health`; re-run `/setup confirm` to rebuild the base structure. |
+| `/setup confirm` had issues on a Community server | Community-required channels (Rules, Community Updates) can't be deleted by anyone — the bot now preserves and skips them automatically. Just re-run `/setup preview` → `/setup confirm`. |
 | Applicant didn't get a DM result | They likely have DMs closed; the result is still recorded and shown in the staff log channel. |
 
 Detailed logs are in `.\data\logs\bot.log` and in the staff `#log-*` channels. Full recovery

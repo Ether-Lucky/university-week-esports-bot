@@ -6,6 +6,7 @@ can be safely re-run (docs/error-handling.md).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from ..domain.enums import ResourceOwnerType, ResourceType
@@ -13,6 +14,8 @@ from ..domain.permissions import EVERYONE, overwrites_for
 from ..domain.server_blueprint import CategorySpec, full_blueprint
 from ..infra.discord_gateway import ResourceGateway
 from ..infra.discord_resources import DiscordResourceService
+
+log = logging.getLogger(__name__)
 
 _KIND_TO_TYPE = {
     "text": ResourceType.TEXT_CHANNEL,
@@ -118,12 +121,21 @@ class SetupService:
         return True
 
     async def remove_preexisting(self, remove: list[tuple[str, int, str]]) -> int:
-        """Delete non-preserved pre-existing resources (children first)."""
+        """Delete non-preserved pre-existing resources (children first).
+
+        Skips resources Discord refuses to delete (e.g. Community-required Rules /
+        Updates channels, error 50074) so one undeletable item can't abort setup.
+        """
         removed = 0
-        for kind, discord_id, _name in sorted(remove, key=lambda r: _REMOVE_ORDER.get(r[0], 0)):
+        for kind, discord_id, name in sorted(remove, key=lambda r: _REMOVE_ORDER.get(r[0], 0)):
             rtype = _KIND_TO_TYPE.get(kind)
             if rtype is None:
                 continue
-            await self._gw.delete(rtype, discord_id)
-            removed += 1
+            try:
+                await self._gw.delete(rtype, discord_id)
+                removed += 1
+            except Exception as exc:  # noqa: BLE001 - keep going; log what we skipped
+                log.warning(
+                    "Skipping deletion of %s '%s' (%s): %s", kind, name, discord_id, exc
+                )
         return removed

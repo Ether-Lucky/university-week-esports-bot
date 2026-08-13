@@ -58,6 +58,20 @@ def snapshot_guild(guild: discord.Guild) -> GuildSnapshot:
     return GuildSnapshot(roles=roles, channels=channels, features=frozenset(guild.features))
 
 
+def protected_channel_ids(guild: discord.Guild) -> set[int]:
+    """Channels Discord won't let us delete on a Community server (+ system channels)."""
+    ids: set[int] = set()
+    for ch in (
+        guild.rules_channel,
+        guild.public_updates_channel,
+        guild.system_channel,
+        getattr(guild, "safety_alerts_channel", None),
+    ):
+        if ch is not None:
+            ids.add(ch.id)
+    return ids
+
+
 class SetupCog(commands.Cog):
     def __init__(self, bot: EsportsBot) -> None:
         self.bot = bot
@@ -92,7 +106,10 @@ class SetupCog(commands.Cog):
             return
 
         snap = snapshot_guild(interaction.guild)
-        preview = plan_preview(snap, num_games=len(shorts))
+        preview = plan_preview(
+            snap, num_games=len(shorts),
+            always_preserve_ids=protected_channel_ids(interaction.guild),
+        )
         token = secrets.token_hex(3)
         self._tokens[(interaction.guild_id, interaction.user.id)] = token
 
@@ -172,7 +189,10 @@ class SetupCog(commands.Cog):
             return
 
         snap = snapshot_guild(interaction.guild)
-        preview = plan_preview(snap, num_games=len(shorts))
+        preview = plan_preview(
+            snap, num_games=len(shorts),
+            always_preserve_ids=protected_channel_ids(interaction.guild),
+        )
         if not preview.can_proceed:
             await interaction.followup.send(
                 "Cannot proceed:\n" + "\n".join(preview.warnings), ephemeral=True
