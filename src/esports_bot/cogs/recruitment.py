@@ -121,18 +121,32 @@ class RecruitmentCog(commands.Cog):
                 event_id, ResourceOwnerType.GAME, None, f"game_lft_forum:{game_slug}"
             )
         forum = interaction.guild.get_channel(forum_id) if forum_id else None
+        thread_mention = None
         if forum is not None and isinstance(forum, discord.ForumChannel):
             embed = discord.Embed(title=f"LFT: {ign}", colour=discord.Colour.green())
             embed.add_field(name="Game", value=game_name, inline=True)
             embed.add_field(name="Main role", value=role, inline=True)
             if note:
                 embed.add_field(name="Note", value=note[:1024], inline=False)
+            embed.add_field(
+                name="📸 Screenshots",
+                value=(
+                    f"{interaction.user.mention}, reply to this post with screenshots of your "
+                    "**in-game profile** and **stats** so team leaders can evaluate you."
+                ),
+                inline=False,
+            )
             embed.set_footer(text=f"{interaction.user.display_name} is looking for a team")
             view = discord.ui.View(timeout=None)
             view.add_item(RecruitButton(interaction.user.id))
-            await forum.create_thread(name=f"{ign} — {role}"[:100], embed=embed, view=view)
+            created = await forum.create_thread(
+                name=f"{ign} — {role}"[:100], embed=embed, view=view
+            )
+            thread_mention = created.thread.mention
+        where = f" Add your profile & stats screenshots by replying here: {thread_mention}" \
+            if thread_mention else ""
         await interaction.followup.send(
-            "✅ Posted you to the looking-for-team forum! Team leaders can now recruit you.",
+            f"✅ Posted you to the looking-for-team forum!{where}",
             ephemeral=True,
         )
 
