@@ -37,6 +37,56 @@ log = logging.getLogger(__name__)
 _BACKUP_DIR = Path("data/backups")
 
 
+def _flow_embed(event_name: str) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"🎮 {event_name} — How It Works",
+        colour=discord.Colour.blurple(),
+        description="Welcome! Here's how to take part in the E-Sports tryouts:",
+    )
+    embed.add_field(
+        name="1️⃣ Verify",
+        value="Complete verification in **#verify** to get the **Audience** role.",
+        inline=False,
+    )
+    embed.add_field(
+        name="2️⃣ Apply",
+        value="When applications open, go to **#apply** and press **Apply for Tryouts**. "
+        "Fill in the short form (name, school email, Facebook, year & section, game).",
+        inline=False,
+    )
+    embed.add_field(
+        name="3️⃣ Get approved",
+        value="Staff review your application. Once approved you become an **Applicant** "
+        "and unlock team formation.",
+        inline=False,
+    )
+    embed.add_field(
+        name="4️⃣ Team up",
+        value="Create a team with `/team create` or join one with `/team join <id>` "
+        "(browse the team forums). Leaders recruit with `/recruit player`.",
+        inline=False,
+    )
+    embed.add_field(
+        name="5️⃣ Get ready",
+        value="Staff post the mechanics and bracket. Check in with `/tryout checkin` "
+        "before the tryout begins.",
+        inline=False,
+    )
+    embed.add_field(
+        name="6️⃣ Compete",
+        value="Play your matches during the tryout. Results appear in each game's "
+        "**battle-results** channel.",
+        inline=False,
+    )
+    embed.add_field(
+        name="7️⃣ Win",
+        value="The champion team's members become official **Players**! 🏆",
+        inline=False,
+    )
+    embed.set_footer(text="Roles: Audience (everyone) → Applicant (approved) → Player (champions)")
+    return embed
+
+
 def snapshot_guild(guild: discord.Guild) -> GuildSnapshot:
     roles = tuple(
         RoleInfo(id=r.id, name=r.name, managed=r.managed, is_default=r.is_default())
@@ -209,6 +259,35 @@ class SetupCog(commands.Cog):
             f"{note}. New members still verify via the external bot.",
             ephemeral=True,
         )
+
+    @setup_group.command(
+        name="post-guide", description="Post the 'how it works' guide in #how-it-works."
+    )
+    async def post_guide(self, interaction: discord.Interaction) -> None:
+        if not is_head_or_owner(interaction, self.bot.settings):
+            await interaction.response.send_message("E-Sports Head only.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None:
+                await interaction.followup.send("No active event.", ephemeral=True)
+                return
+            resources = DiscordResourceService(
+                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
+            )
+            channel_id = await resources.find(
+                event.id, ResourceOwnerType.SYSTEM, None, "ch_info"
+            )
+            event_name = f"{event.name} {event.year}"
+        channel = interaction.guild.get_channel(channel_id) if channel_id else None
+        if channel is None:
+            await interaction.followup.send(
+                "No #how-it-works channel found. Run `/setup confirm` first.", ephemeral=True
+            )
+            return
+        await channel.send(embed=_flow_embed(event_name))
+        await interaction.followup.send(f"Posted the guide in {channel.mention}.", ephemeral=True)
 
     @setup_group.command(name="backup", description="Save the current server structure to a file.")
     async def backup(self, interaction: discord.Interaction) -> None:

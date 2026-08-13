@@ -7,7 +7,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..bot import EsportsBot
-from ..domain.enums import ResourceOwnerType, ResourceStatus
+from ..domain.enums import EventState, ResourceOwnerType, ResourceStatus
 from ..infra import db
 from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
@@ -162,16 +162,56 @@ class EventCog(commands.Cog):
         if event_id is None:
             await interaction.followup.send("No active event.", ephemeral=True)
             return
+        new_state = None
+        event_name = ""
         try:
             async with db.session_scope() as s:
                 ev = await EventService(s).advance(
                     event_id=event_id, actor_discord_id=interaction.user.id,
                     actor_username=str(interaction.user),
                 )
+                new_state = ev.state
+                event_name = f"{ev.name} {ev.year}"
                 msg = f"Event advanced to **{ev.state.value}**."
         except (ServiceError, ValueError) as exc:
-            msg = f"Could not advance: {exc}"
+            await interaction.followup.send(f"Could not advance: {exc}", ephemeral=True)
+            return
+        if new_state == EventState.APPLICATIONS_OPEN:
+            await self._announce_applications_open(interaction.guild, event_id, event_name)
+            msg += " 📢 Announced that applications are open."
         await interaction.followup.send(msg, ephemeral=True)
+
+    async def _announce_applications_open(
+        self, guild: discord.Guild, event_id: int, event_name: str
+    ) -> None:
+        """Post an 'applications are open' notice in #apply and ping Audience."""
+        async with db.session_scope() as s:
+            resources = DiscordResourceService(
+                DiscordResourceGateway(guild), SqlResourceRepository(s)
+            )
+            apply_id = await resources.find(
+                event_id, ResourceOwnerType.SYSTEM, None, "ch_apply"
+            )
+            audience_id = await resources.find(
+                event_id, ResourceOwnerType.SYSTEM, None, "role_audience"
+            )
+        channel = guild.get_channel(apply_id) if apply_id else None
+        if channel is None:
+            return
+        role = guild.get_role(audience_id) if audience_id else None
+        embed = discord.Embed(
+            title="📢 Applications are now OPEN!",
+            description=(
+                f"**{event_name}** tryout applications are open. Press **Apply for Tryouts** "
+                "below to submit yours. See **#how-it-works** for the full flow."
+            ),
+            colour=discord.Colour.green(),
+        )
+        content = role.mention if role else None
+        await channel.send(
+            content=content, embed=embed,
+            allowed_mentions=discord.AllowedMentions(roles=True),
+        )
 
     @event.command(name="status", description="Show the current event status.")
     async def status(self, interaction: discord.Interaction) -> None:

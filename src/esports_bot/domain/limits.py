@@ -21,9 +21,9 @@ BASE_ROLES_CREATED = 6
 
 # Non-game categories: WELCOME/VERIFICATION, APPLICATIONS, STAFF, STAFF LOGS.
 BASE_CATEGORIES = 4
-# Non-game channels: verify, rules, apply, staff-general, application-review,
-# staff-commands, + 9 staff-log channels = 15.
-BASE_CHANNELS = 15
+# Non-game channels: verify, rules, how-it-works, apply, staff-general,
+# application-review, staff-commands, + 9 staff-log channels = 16.
+BASE_CHANNELS = 16
 
 # Channels created per game category at setup (tryout voice + stage are created later):
 # staff, general, apply-info, team-forum, lft-forum, players, mechanics,

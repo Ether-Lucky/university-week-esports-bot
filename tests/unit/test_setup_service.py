@@ -103,8 +103,8 @@ async def test_build_creates_full_structure(svc) -> None:
     assert report.roles == 6
     # 4 base categories + 2 game categories.
     assert report.categories == 6
-    # 15 base channels + 2 games * 9 = 33.
-    assert report.channels == 33
+    # 16 base channels + 2 games * 9 = 34.
+    assert report.channels == 34
     assert gw.create_calls == report.roles + report.categories + report.channels
 
 

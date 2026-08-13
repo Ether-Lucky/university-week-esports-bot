@@ -62,6 +62,7 @@ BASE_CATEGORIES: tuple[CategorySpec, ...] = (
         (
             ChannelSpec("ch_verify", "verify", "text"),
             ChannelSpec("ch_rules", "rules", "text"),
+            ChannelSpec("ch_info", "how-it-works", "text"),
         ),
     ),
     CategorySpec(

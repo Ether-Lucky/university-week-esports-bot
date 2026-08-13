@@ -104,6 +104,7 @@ def archetype_for(purpose: str) -> str:
     mapping = {
         "ch_verify": "verify",
         "ch_rules": "rules",
+        "ch_info": "rules",  # how-it-works: visible to everyone, read-only
         "ch_apply": "apply",
         "ch_staff_general": "staff_only",
         "ch_application_review": "staff_only",

@@ -376,6 +376,11 @@ tryout date) before `/tryout start` will run.
 - `/setup grant-audience` — give the **Audience** role to all current human members at once
   (handy on an existing server so people don't each have to verify). Re-runnable; new joiners
   still verify via the external bot. Head only.
+- `/setup post-guide` — post the "how it works" flow guide into **#how-it-works** (created by
+  setup) so the audience knows how to proceed. Head only, re-runnable.
+
+> When you advance the event to **APPLICATIONS_OPEN**, the bot automatically posts a "📢 Applications
+> are now OPEN" announcement in **#apply** and pings **@Audience**.
 - `/event create …` · `/event configure add-game …` · `/event configure remove-game game:` · `/event advance` · `/event status` — Head.
 
 > **Fixing a misinput:** `/event configure remove-game game:<name>` removes a wrongly-added game
