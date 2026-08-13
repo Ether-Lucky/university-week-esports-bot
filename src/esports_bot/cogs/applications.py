@@ -105,7 +105,8 @@ class ApplyView(discord.ui.View):
         self.bot = bot
 
     @discord.ui.button(
-        label="Apply as Player", style=discord.ButtonStyle.primary, custom_id="esports:apply:start"
+        label="Apply for Tryouts", style=discord.ButtonStyle.primary,
+        custom_id="esports:apply:start",
     )
     async def apply(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         async with db.session_scope() as s:
@@ -248,8 +249,11 @@ class ApplicationsCog(commands.Cog):
                 await interaction.response.send_message("Staff only.", ephemeral=True)
                 return
         embed = discord.Embed(
-            title="Player Applications",
-            description="Press **Apply as Player** to submit your tryout application.",
+            title="Tryout Applications",
+            description=(
+                "Press **Apply for Tryouts** to submit your application. "
+                "Approved applicants can then form or join a team."
+            ),
             colour=discord.Colour.blurple(),
         )
         await interaction.channel.send(embed=embed, view=ApplyView(self.bot))
