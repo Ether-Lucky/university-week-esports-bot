@@ -1,0 +1,100 @@
+"""Battle result recording & correction (docs §23-24, FR-16/FR-17)."""
+
+from __future__ import annotations
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..domain import states
+from ..domain.enums import MatchStatus, TeamStatus
+from ..infra import audit
+from ..models import Match, MatchResult
+from ..repositories.competition import MatchRepository
+from ..repositories.core import UserRepository
+from ..repositories.teams import TeamRepository
+from .errors import ServiceError
+
+
+class MatchService:
+    def __init__(self, session: AsyncSession) -> None:
+        self._s = session
+        self.matches = MatchRepository(session)
+        self.teams = TeamRepository(session)
+        self.users = UserRepository(session)
+
+    async def create_match(
+        self, *, event_id: int, game_id: int, team_a_id: int, team_b_id: int | None
+    ) -> Match:
+        match = Match(
+            event_id=event_id, game_id=game_id, team_a_id=team_a_id,
+            team_b_id=team_b_id, status=MatchStatus.SCHEDULED,
+        )
+        self.matches.add(match)
+        await self._s.flush()
+        return match
+
+    async def record_result(
+        self, *, event_id: int, match_id: int, winner_team_id: int,
+        screenshot_url: str | None, notes: str | None,
+        reporter_discord_id: int, reporter_username: str,
+    ) -> MatchResult:
+        match = await self.matches.get(match_id)
+        if match is None:
+            raise ServiceError("Match not found.")
+        if winner_team_id not in (match.team_a_id, match.team_b_id):
+            raise ServiceError("Winner must be one of the two teams in the match.")
+        reporter = await self.users.get_or_create(reporter_discord_id, reporter_username)
+
+        match.winner_team_id = winner_team_id
+        match.status = MatchStatus.COMPLETED
+        loser_id = match.team_b_id if winner_team_id == match.team_a_id else match.team_a_id
+        if loser_id is not None:
+            loser = await self.teams.get(loser_id)
+            if loser and loser.status == TeamStatus.COMPETING:
+                loser.status = TeamStatus.ELIMINATED
+
+        result = await self.matches.result_for(match_id)
+        if result is None:
+            result = MatchResult(
+                match_id=match_id, winner_team_id=winner_team_id,
+                screenshot_url=screenshot_url, notes=notes, reported_by=reporter.id,
+            )
+            self.matches.add_result(result)
+        else:
+            result.winner_team_id = winner_team_id
+            result.screenshot_url = screenshot_url
+            result.notes = notes
+        await self._s.flush()
+        await audit.record(
+            self._s, action="match.result", event_id=event_id, actor_user_id=reporter.id,
+            entity_type="match", entity_id=match_id, after={"winner": winner_team_id},
+        )
+        return result
+
+    async def correct(
+        self, *, event_id: int, match_id: int, winner_team_id: int, reason: str,
+        actor_discord_id: int, actor_username: str,
+    ) -> MatchResult:
+        if not reason or not reason.strip():
+            raise ServiceError("A correction reason is required.")
+        match = await self.matches.get(match_id)
+        result = await self.matches.result_for(match_id)
+        if match is None or result is None:
+            raise ServiceError("Match result not found.")
+        if winner_team_id not in (match.team_a_id, match.team_b_id):
+            raise ServiceError("Winner must be one of the two teams in the match.")
+        actor = await self.users.get_or_create(actor_discord_id, actor_username)
+        before = result.winner_team_id
+        result.winner_team_id = winner_team_id
+        result.corrected = True
+        result.correction_reason = reason.strip()
+        match.winner_team_id = winner_team_id
+        if match.status == MatchStatus.DISPUTED:
+            states.assert_transition("match", MatchStatus.DISPUTED, MatchStatus.COMPLETED)
+            match.status = MatchStatus.COMPLETED
+        await self._s.flush()
+        await audit.record(
+            self._s, action="match.correct", event_id=event_id, actor_user_id=actor.id,
+            entity_type="match", entity_id=match_id,
+            before={"winner": before}, after={"winner": winner_team_id, "reason": reason},
+        )
+        return result

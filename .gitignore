@@ -1,0 +1,33 @@
+# Secrets & environment
+.env
+.env.*
+!.env.example
+
+# Runtime data (DB backups, exports, logs) — contains PII
+data/
+*.sql
+*.dump
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
