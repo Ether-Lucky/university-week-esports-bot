@@ -417,6 +417,9 @@ tryout date) before `/tryout start` will run.
 
 **Exports** (staff)
 - `/export kind:applicants|teams|members|matches|checkins|logs|all`.
+  - Optional `applicant_status:` filters the **applicants** export: All (default), Active
+    (no rejected/withdrawn), Approved only, Pending only, or Rejected only. Rejected applications
+    always stay in the database (historical record) — this only controls what's in the CSV.
 
 ---
 

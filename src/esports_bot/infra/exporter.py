@@ -41,13 +41,18 @@ async def _user(session: AsyncSession, user_id: int | None) -> User | None:
     return await session.get(User, user_id) if user_id else None
 
 
-async def export_applicants(session: AsyncSession, event_id: int) -> str:
-    res = await session.execute(
+async def export_applicants(
+    session: AsyncSession, event_id: int, statuses: list | None = None
+) -> str:
+    stmt = (
         select(Application, User, Game)
         .join(User, Application.user_id == User.id)
         .join(Game, Application.game_id == Game.id)
         .where(Application.event_id == event_id)
     )
+    if statuses:
+        stmt = stmt.where(Application.status.in_(statuses))
+    res = await session.execute(stmt)
     headers = [
         "application_id", "discord_user_id", "discord_username", "first_name", "full_name",
         "middle_initial", "school_email", "facebook_url", "year_section", "game", "status",
