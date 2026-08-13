@@ -201,7 +201,7 @@ class ApplicationsCog(commands.Cog):
                 discord_id = user.discord_user_id
                 event_id = event.id
                 game = await s.get(Game, app.game_id)
-                game_slug = slug(game.name)
+                game_slug, game_name = slug(game.name), game.name
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
@@ -216,7 +216,17 @@ class ApplicationsCog(commands.Cog):
         await self._grant_event_role(
             interaction.guild, event_id, f"game_role:{game_slug}", discord_id
         )
-        await self._notify(interaction.guild, discord_id, "✅ Your application was approved!")
+        await self._notify(
+            interaction.guild, discord_id,
+            f"✅ **Your application for {game_name} was approved!** You're now an Applicant.\n\n"
+            "**What's next:**\n"
+            "• **Create a team:** `/team create name:<your team name>` — you become the leader.\n"
+            "• **Join a team:** press **Join Team** on a team's post in the team forum, "
+            "or `/team join team_id:<id>`.\n"
+            "• **No team yet?** `/findteam ign:<> role:<>` so leaders can recruit you.\n"
+            "• **Switch game:** `/switch-game game:<name>` (before joining a team).\n\n"
+            "See **#how-it-works** for the full guide. Good luck! 🎮",
+        )
         await interaction.followup.send(f"Approved application #{application_id}.", ephemeral=True)
 
     @application.command(name="reject", description="Reject an application with a reason.")

@@ -56,20 +56,26 @@ def _flow_embed(event_name: str) -> discord.Embed:
     )
     embed.add_field(
         name="3️⃣ Get approved",
-        value="Staff review your application. Once approved you become an **Applicant** "
-        "and unlock team formation.",
+        value="Staff review your application. Once approved you become an **Applicant** for "
+        "your game and can start teaming up (you can `/switch-game` before joining a team).",
         inline=False,
     )
     embed.add_field(
         name="4️⃣ Team up",
-        value="Create a team with `/team create` or join one with `/team join <id>` "
-        "(browse the team forums). Leaders recruit with `/recruit player`.",
+        value=(
+            "• **Make a team:** `/team create name:<name>` — you become the leader; your team "
+            "is posted to the **team forum**.\n"
+            "• **Join a team:** press **Join Team** on a team's forum post (or `/team join "
+            "team_id:<id>`).\n"
+            "• **No team yet?** `/findteam ign:<> role:<>` posts you to the **looking-for-team "
+            "forum** with a **Recruit** button leaders can press."
+        ),
         inline=False,
     )
     embed.add_field(
         name="5️⃣ Get ready",
-        value="Staff post the mechanics and bracket. Check in with `/tryout checkin` "
-        "before the tryout begins.",
+        value="Staff post the **mechanics** and the **bracket** link, and set the tryout "
+        "date/time. Check in with `/tryout checkin` before the tryout begins.",
         inline=False,
     )
     embed.add_field(
@@ -280,21 +286,47 @@ class SetupCog(commands.Cog):
             if event is None:
                 await interaction.followup.send("No active event.", ephemeral=True)
                 return
-            resources = DiscordResourceService(
-                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
-            )
+            repo = SqlResourceRepository(s)
+            resources = DiscordResourceService(DiscordResourceGateway(interaction.guild), repo)
             channel_id = await resources.find(
                 event.id, ResourceOwnerType.SYSTEM, None, "ch_info"
             )
-            event_name = f"{event.name} {event.year}"
+            guide_row = await repo.get(event.id, ResourceOwnerType.SYSTEM, None, "guide_message")
+            guide_msg_id = guide_row.discord_id if guide_row else None
+            guide_row_id = guide_row.id if guide_row else None
+            event_name, event_id = f"{event.name} {event.year}", event.id
         channel = interaction.guild.get_channel(channel_id) if channel_id else None
         if channel is None:
             await interaction.followup.send(
                 "No #how-it-works channel found. Run `/setup confirm` first.", ephemeral=True
             )
             return
-        await channel.send(embed=_flow_embed(event_name))
-        await interaction.followup.send(f"Posted the guide in {channel.mention}.", ephemeral=True)
+
+        embed = _flow_embed(event_name)
+        edited = False
+        if guide_msg_id:  # try to update the existing guide message in place
+            try:
+                msg = await channel.fetch_message(guide_msg_id)
+                await msg.edit(embed=embed)
+                edited = True
+            except discord.HTTPException:
+                edited = False
+        if not edited:
+            msg = await channel.send(embed=embed)
+            async with db.session_scope() as s:
+                repo = SqlResourceRepository(s)
+                if guide_row_id is not None:
+                    await repo.set_created(guide_row_id, msg.id)
+                else:
+                    row = await repo.add_pending(
+                        event_id, ResourceType.MESSAGE, ResourceOwnerType.SYSTEM, None,
+                        "guide_message",
+                    )
+                    await repo.set_created(row.id, msg.id)
+        verb = "Updated" if edited else "Posted"
+        await interaction.followup.send(
+            f"{verb} the guide in {channel.mention}.", ephemeral=True
+        )
 
     @setup_group.command(name="backup", description="Save the current server structure to a file.")
     async def backup(self, interaction: discord.Interaction) -> None:

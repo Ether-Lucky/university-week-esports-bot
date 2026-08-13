@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -16,6 +19,7 @@ from ..infra.resource_repository import SqlResourceRepository
 from ..repositories.core import EventRepository, GameRepository
 from ..services.checkin_service import CheckinService
 from ..services.errors import ServiceError
+from ..services.event_service import EventService
 from ..services.tryout_service import TryoutService
 from .checks import is_staff
 
@@ -53,6 +57,36 @@ class TryoutCog(commands.Cog):
             )
         embed.description = "**READY**" if overall else "**NOT READY**"
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @tryout.command(name="schedule", description="Set the tryout date & time (staff).")
+    @app_commands.describe(
+        date="Date as YYYY-MM-DD", time="Time as HH:MM (24-hour), in the event's timezone"
+    )
+    async def schedule(self, interaction: discord.Interaction, date: str, time: str) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            try:
+                naive = datetime.strptime(f"{date.strip()} {time.strip()}", "%Y-%m-%d %H:%M")
+                tz = ZoneInfo(event.timezone)
+            except (ValueError, ZoneInfoNotFoundError):
+                await interaction.followup.send(
+                    "Invalid date/time. Use `date:2027-02-14` and `time:09:30`.", ephemeral=True
+                )
+                return
+            local_dt = naive.replace(tzinfo=tz)
+            await EventService(s).set_schedule(
+                event_id=event.id, actor_discord_id=interaction.user.id,
+                actor_username=str(interaction.user), tryout_at=local_dt.astimezone(UTC),
+            )
+            when = local_dt.strftime("%A, %d %b %Y at %I:%M %p")
+            tzname = event.timezone
+        await interaction.followup.send(
+            f"✅ Tryout scheduled for **{when}** ({tzname}).", ephemeral=True
+        )
 
     @tryout.command(name="checkin", description="Check yourself in for the tryout.")
     async def checkin(self, interaction: discord.Interaction) -> None:

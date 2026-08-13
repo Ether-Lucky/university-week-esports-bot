@@ -419,7 +419,8 @@ tryout date) before `/tryout start` will run.
 - See [`docs/embed-authoring.md`](docs/embed-authoring.md) for writing clean mechanics.
 
 **Tryout & matches** (staff)
-- `/tryout status` · `/tryout checkin` (players) · `/tryout start` · `/tryout crown game: team_id:` · `/tryout end`.
+- `/tryout schedule date:YYYY-MM-DD time:HH:MM` (sets tryout date/time in the event timezone; works during any pre-tryout phase) · `/tryout status` · `/tryout checkin` (players) · `/tryout start` · `/tryout crown game: team_id:` · `/tryout end`.
+- `/setup post-guide` re-run **updates the existing #how-it-works message in place** (edit it, then run again to resend).
 - `/match battle-ended match_id: winner_team_id: [screenshot:] [notes:]` · `/match correct match_id: winner_team_id: reason:`.
 
 **Exports** (staff)
