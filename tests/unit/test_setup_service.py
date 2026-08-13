@@ -20,6 +20,9 @@ class FakeGateway:
     def bot_top_role_position(self) -> int:
         return 99
 
+    def find_role_by_name(self, name: str) -> int | None:
+        return None  # no pre-existing roles -> always create
+
     async def _make(self, rtype: ResourceType) -> int:
         self.create_calls += 1
         self._next += 1

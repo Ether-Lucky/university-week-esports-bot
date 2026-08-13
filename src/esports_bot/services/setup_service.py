@@ -48,10 +48,19 @@ class SetupService:
         roles, categories = full_blueprint(game_shorts)
 
         for role in roles:
-            await self._res.ensure_role(
-                event_id, ResourceOwnerType.SYSTEM, None, role.purpose, role.name,
-                hoist=role.hoist,
-            )
+            # Reuse an existing role of the same name (e.g. from a previous run)
+            # instead of creating a duplicate; the bot often can't delete old roles.
+            existing = self._gw.find_role_by_name(role.name)
+            if existing is not None:
+                await self._res.register_existing(
+                    event_id, ResourceType.ROLE, ResourceOwnerType.SYSTEM, None,
+                    role.purpose, existing,
+                )
+            else:
+                await self._res.ensure_role(
+                    event_id, ResourceOwnerType.SYSTEM, None, role.purpose, role.name,
+                    hoist=role.hoist,
+                )
             report.roles += 1
 
         for cat in categories:

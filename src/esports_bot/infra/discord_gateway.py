@@ -28,6 +28,8 @@ class ResourceGateway(Protocol):
 
     def bot_top_role_position(self) -> int: ...
 
+    def find_role_by_name(self, name: str) -> int | None: ...
+
     async def create_role(self, name: str, **kwargs: Any) -> int: ...
 
     async def create_category(self, name: str, overwrites: Any | None = None) -> int: ...
@@ -67,6 +69,12 @@ class DiscordResourceGateway:
 
     def bot_top_role_position(self) -> int:
         return self._guild.me.top_role.position
+
+    def find_role_by_name(self, name: str) -> int | None:
+        import discord
+
+        role = discord.utils.get(self._guild.roles, name=name)
+        return role.id if role else None
 
     def _category(self, category_id: int | None):
         if category_id is None:

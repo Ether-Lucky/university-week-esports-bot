@@ -79,11 +79,12 @@ def plan_preview(
             preserved_cat_id = ch.id
             break
 
-    # Roles: preserve @everyone, managed roles, and the E-Sports Head role.
+    # Roles: never delete roles. Deleting roles is dangerous (a bot often can't
+    # delete roles at/above its own position, and it risks wiping unrelated roles).
+    # Setup reuses same-named roles instead (see SetupService.build), so all
+    # existing roles are preserved.
     for r in snapshot.roles:
-        keep = r.is_default or r.managed or _norm(r.name) == _norm(cfg.head_role_name)
-        target = result.preserve if keep else result.remove
-        target.append(("role", r.id, r.name))
+        result.preserve.append(("role", r.id, r.name))
 
     # Channels: preserve the announcement channel, the preserved category + children,
     # and any always-preserve IDs (e.g. Community-required Rules/Updates channels).

@@ -77,10 +77,13 @@ def test_preview_preserve_and_remove() -> None:
     preview = plan_preview(_snapshot(), num_games=2)
     preserved_ids = {i for _, i, _ in preview.preserve}
     removed_ids = {i for _, i, _ in preview.remove}
-    # Preserved: @everyone, Head, managed bot role, announcements, TEXT CHANNELS + child.
-    assert {1, 2, 3, 10, 20, 21}.issubset(preserved_ids)
-    # Removed: random role, old category + its channel.
-    assert {4, 30, 31}.issubset(removed_ids)
+    # All roles are preserved now (setup never deletes roles): @everyone, Head,
+    # managed bot role, and even the unrelated "Random Role".
+    assert {1, 2, 3, 4}.issubset(preserved_ids)
+    # Channels preserved: announcements, TEXT CHANNELS + child.
+    assert {10, 20, 21}.issubset(preserved_ids)
+    # Only non-preserved channels are removed; no roles.
+    assert removed_ids == {30, 31}
     assert preview.community_ok
     assert preview.can_proceed
 
