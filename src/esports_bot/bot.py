@@ -104,10 +104,21 @@ class EsportsBot(commands.Bot):
         guild = self.get_guild(self.settings.guild_id)
         if guild is None:
             log.warning(
-                "Configured GUILD_ID %s not found among the bot's guilds. "
-                "Is the bot invited to that server?",
+                "Configured GUILD_ID %s not found among the bot's guilds.",
                 self.settings.guild_id,
             )
+            if self.guilds:
+                joined = ", ".join(f"'{g.name}' (id={g.id})" for g in self.guilds)
+                log.warning(
+                    "The bot IS currently in: %s. Either set GUILD_ID in .env to one of these "
+                    "IDs, or re-open your invite URL and authorize the bot to the correct server.",
+                    joined,
+                )
+            else:
+                log.warning(
+                    "The bot is not in ANY server yet. Open your invite URL and click Authorize "
+                    "for the target server."
+                )
         else:
             log.info("Operating in guild: %s (id=%s)", guild.name, guild.id)
         log.info("No active event loaded yet (event lifecycle wiring lands in M4).")
