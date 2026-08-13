@@ -167,9 +167,20 @@ Per the project's decision (OQ-2), a **separate** verification/captcha bot handl
 verification and hands out a "verified" role; our bot then gives those members the **Audience** role.
 
 1. Invite a verification bot of your choice (a captcha-gate bot) to the server and configure it so
-   that passing verification grants a specific role (e.g. `@Verified`).
+   that passing verification grants a specific role. **Or just make your own role** (any name — the
+   name does not matter) and let the verification bot assign it.
 2. Copy that role's ID: Server Settings → Roles → right-click the verified role → **Copy Role ID**
-   (Developer Mode must be on). Save it for step 9 (`VERIFIED_SOURCE_ROLE_ID`).
+   (Developer Mode must be on). Put it in `.env` as `VERIFIED_SOURCE_ROLE_ID` (step 9).
+
+**How the auto-grant works (important):**
+- The bot matches the verified role by its **ID**, not its name — so `verified` vs `Verified`
+  makes no difference; only `VERIFIED_SOURCE_ROLE_ID` matters.
+- It's **automatic** — no command to run. Whenever a member gains that role, the bot grants
+  **Audience** (and revokes it if the role is removed).
+- After you change `VERIFIED_SOURCE_ROLE_ID`, you **must restart the bot** (it reads `.env` only at
+  startup).
+- For it to fire, an **active event** must exist and **`/setup confirm`** must have run (so the
+  Audience role exists). If either is missing, nothing happens.
 
 > Don't want an external bot? The button-only alternative can be re-enabled, but as configured the
 > bot expects an external verified role.
@@ -421,6 +432,7 @@ tryout date) before `/tryout start` will run.
 | A channel/role got deleted by hand | Run `/system health`; re-run `/setup confirm` to rebuild the base structure. |
 | `/setup confirm` had issues on a Community server | Community-required channels (Rules, Community Updates) can't be deleted by anyone — the bot now preserves and skips them automatically. Just re-run `/setup preview` → `/setup confirm`. |
 | Applicant didn't get a DM result | They likely have DMs closed; the result is still recorded and shown in the staff log channel. |
+| Assigned the verified role but no Audience role appears | `VERIFIED_SOURCE_ROLE_ID` in `.env` must equal that role's **ID** (name is irrelevant). Copy the role ID, put it in `.env`, **restart the bot**. Also needs an active event and `/setup confirm` done. |
 
 Detailed logs are in `.\data\logs\bot.log` and in the staff `#log-*` channels. Full recovery
 scenarios are in [`docs/deployment-guide.md`](docs/deployment-guide.md).
