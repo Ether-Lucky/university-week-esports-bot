@@ -35,8 +35,18 @@ class VerificationCog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
         verified_id = self.bot.settings.verified_source_role_id
-        if not verified_id or before.roles == after.roles:
+        if not verified_id:
             return
+        # Fast path: only act when the *verified* role itself was gained or lost.
+        # This avoids any database work for unrelated role changes (e.g. the bulk
+        # Audience grant, team roles, etc.), which would otherwise storm Supabase.
+        before_ids = {r.id for r in before.roles}
+        after_ids = {r.id for r in after.roles}
+        gained = verified_id in after_ids and verified_id not in before_ids
+        lost = verified_id in before_ids and verified_id not in after_ids
+        if not (gained or lost):
+            return
+
         async with db.session_scope() as s:
             event = await EventRepository(s).get_active(after.guild.id)
             if event is None:
@@ -46,8 +56,6 @@ class VerificationCog(commands.Cog):
         if audience_id is None:
             return
 
-        before_ids = [r.id for r in before.roles]
-        after_ids = [r.id for r in after.roles]
         audience_role = after.guild.get_role(audience_id)
         if audience_role is None:
             return

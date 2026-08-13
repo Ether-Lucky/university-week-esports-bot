@@ -7,6 +7,7 @@ removes non-preserved resources, then builds the event structure idempotently.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from ..repositories.core import EventRepository, GameRepository
 from ..services.setup_service import SetupService
 from .checks import HEAD_ROLE_NAME, is_head_or_owner
 
+log = logging.getLogger(__name__)
 _BACKUP_DIR = Path("data/backups")
 
 
@@ -180,8 +182,14 @@ class SetupCog(commands.Cog):
             )
             return
 
+        # Make sure the full member list is loaded (requires Server Members Intent).
+        if not interaction.guild.chunked:
+            await interaction.guild.chunk()
+        members = list(interaction.guild.members)
+        log.info("grant-audience: processing %d members", len(members))
+
         granted = skipped = failed = 0
-        for member in interaction.guild.members:
+        for i, member in enumerate(members, start=1):
             if member.bot or role in member.roles:
                 skipped += 1
                 continue
@@ -190,6 +198,11 @@ class SetupCog(commands.Cog):
                 granted += 1
             except discord.HTTPException:
                 failed += 1
+            if i % 25 == 0:
+                log.info("grant-audience: %d/%d processed", i, len(members))
+        log.info(
+            "grant-audience done: granted=%d skipped=%d failed=%d", granted, skipped, failed
+        )
         note = f" ({failed} failed)" if failed else ""
         await interaction.followup.send(
             f"✅ Granted **Audience** to {granted} members; {skipped} already had it or are bots"
