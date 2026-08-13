@@ -365,8 +365,13 @@ tryout date) before `/tryout start` will run.
 
 > **Fixing a misinput:** `/event configure remove-game game:<name>` removes a wrongly-added game
 > (DRAFT/SETUP only) and deletes its Discord channels. It refuses if applications/teams already
-> use that game. And `/event create` **never** deletes data — it's blocked while an event is active
-> and only ever adds a new event record, so nothing gets wiped.
+> use that game.
+>
+> **Clean slate for reuse/testing:** By default `/event create` never deletes data (it's blocked
+> while an event is active). To reuse the same server + database from scratch, run
+> `/event create … reset:True` — this **wipes ALL data from every table** (irreversible), then
+> creates the fresh event. After a reset, run `/setup preview` → `/setup confirm` to rebuild the
+> Discord structure cleanly. Leave `reset` off for normal use.
 
 **Staff & system**
 - `/staff add member: role:` · `/staff remove member:` · `/staff list`.

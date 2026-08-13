@@ -39,10 +39,12 @@ class EventCog(commands.Cog):
         name="Event name", year="Event year", school="School name",
         email_domain="School email domain (e.g. uphsl.edu.ph)",
         timezone="IANA timezone (e.g. Asia/Manila)",
+        reset="⚠️ WIPE ALL existing data first (irreversible). Leave off unless reusing the DB.",
     )
     async def create(
         self, interaction: discord.Interaction, name: str, year: int,
         school: str, email_domain: str, timezone: str = "Asia/Manila",
+        reset: bool = False,
     ) -> None:
         if not is_head_or_owner(interaction, self.bot.settings):
             await interaction.response.send_message(
@@ -50,8 +52,12 @@ class EventCog(commands.Cog):
             )
             return
         await interaction.response.defer(ephemeral=True)
+        wiped = 0
         try:
             async with db.session_scope() as s:
+                if reset:
+                    from ..services.admin_service import reset_all_data
+                    wiped = await reset_all_data(s)
                 svc = EventService(s)
                 ev = await svc.create_event(
                     guild_id=interaction.guild_id, name=name, year=year,
@@ -59,10 +65,16 @@ class EventCog(commands.Cog):
                     actor_discord_id=interaction.user.id,
                     actor_username=str(interaction.user),
                 )
+                prefix = f"🧨 Wiped all data ({wiped} tables). " if reset else ""
                 msg = (
-                    f"Created event **{ev.name} {ev.year}** (state: {ev.state.value}). "
+                    f"{prefix}Created event **{ev.name} {ev.year}** (state: {ev.state.value}). "
                     "Next: `/event configure add-game`, then `/setup preview`."
                 )
+                if reset:
+                    msg += (
+                        "\n\nNote: old bot-created channels/roles are now untracked — run "
+                        "`/setup preview` → `/setup confirm` to rebuild a clean structure."
+                    )
         except (ServiceError, ValueError) as exc:
             msg = f"Could not create event: {exc}"
         await interaction.followup.send(msg, ephemeral=True)
