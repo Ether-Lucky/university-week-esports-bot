@@ -153,6 +153,50 @@ class SetupCog(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
+    @setup_group.command(
+        name="grant-audience",
+        description="Give the Audience role to all current (human) members.",
+    )
+    async def grant_audience(self, interaction: discord.Interaction) -> None:
+        if not is_head_or_owner(interaction, self.bot.settings):
+            await interaction.response.send_message("E-Sports Head only.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None:
+                await interaction.followup.send("No active event.", ephemeral=True)
+                return
+            resources = DiscordResourceService(
+                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
+            )
+            role_id = await resources.find(
+                event.id, ResourceOwnerType.SYSTEM, None, "role_audience"
+            )
+        role = interaction.guild.get_role(role_id) if role_id else None
+        if role is None:
+            await interaction.followup.send(
+                "No Audience role found. Run `/setup confirm` first.", ephemeral=True
+            )
+            return
+
+        granted = skipped = failed = 0
+        for member in interaction.guild.members:
+            if member.bot or role in member.roles:
+                skipped += 1
+                continue
+            try:
+                await member.add_roles(role, reason="Bulk grant Audience (existing members)")
+                granted += 1
+            except discord.HTTPException:
+                failed += 1
+        note = f" ({failed} failed)" if failed else ""
+        await interaction.followup.send(
+            f"✅ Granted **Audience** to {granted} members; {skipped} already had it or are bots"
+            f"{note}. New members still verify via the external bot.",
+            ephemeral=True,
+        )
+
     @setup_group.command(name="backup", description="Save the current server structure to a file.")
     async def backup(self, interaction: discord.Interaction) -> None:
         if not is_head_or_owner(interaction, self.bot.settings):

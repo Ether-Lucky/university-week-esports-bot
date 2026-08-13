@@ -362,6 +362,9 @@ tryout date) before `/tryout start` will run.
 
 **Setup & event**
 - `/setup preview` · `/setup backup` · `/setup confirm token:` — build the server (Head).
+- `/setup grant-audience` — give the **Audience** role to all current human members at once
+  (handy on an existing server so people don't each have to verify). Re-runnable; new joiners
+  still verify via the external bot. Head only.
 - `/event create …` · `/event configure add-game …` · `/event configure remove-game game:` · `/event advance` · `/event status` — Head.
 
 > **Fixing a misinput:** `/event configure remove-game game:<name>` removes a wrongly-added game
