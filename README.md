@@ -72,22 +72,23 @@ You do **not** need to know how to code to operate the bot.
 
 ## 3. Get the code onto the PC
 
-The project folder is:
-
-```
-C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports
-```
-
-That folder (the one containing `pyproject.toml`, `README.md`, and the `src/` folder) is the
-**project root**. **Every command in this guide is run from the project root.**
-
-Open **PowerShell** and go there (the path has spaces, so keep the quotes):
+Download or clone this repository to a folder of your choice, for example:
 
 ```powershell
-cd "C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports"
+git clone https://github.com/Ether-Lucky/university-week-esports-bot.git
 ```
 
-> Tip: you can confirm you're in the right place with `ls` — you should see `pyproject.toml`,
+The folder that contains `pyproject.toml`, `README.md`, and the `src/` folder is the
+**project root** — throughout this guide it's written as `<project-root>`. **Every command in this
+guide is run from the project root.**
+
+Open **PowerShell** and go there (wrap the path in quotes if it contains spaces):
+
+```powershell
+cd "<project-root>"      # e.g. cd "C:\Users\<you>\university-week-esports-bot"
+```
+
+> Tip: confirm you're in the right place with `ls` — you should see `pyproject.toml`,
 > `src`, `docs`, `alembic.ini`.
 
 ---
@@ -103,7 +104,7 @@ cd "C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports"
 
 2. **Create a virtual environment and install the bot** (run from the project root):
    ```powershell
-   cd "C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports"
+   cd "<project-root>"
    python -m venv .venv
    .\.venv\Scripts\Activate.ps1     # PowerShell   (cmd.exe: .venv\Scripts\activate.bat)
    pip install -e .
@@ -248,7 +249,7 @@ dashboard → **Table Editor** (you'll see `events`, `applications`, `teams`, et
 From the **project root**, with the venv active:
 
 ```powershell
-cd "C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports"
+cd "<project-root>"
 .\.venv\Scripts\Activate.ps1        # PowerShell   (cmd.exe: .venv\Scripts\activate.bat)
 python -m esports_bot
 ```
