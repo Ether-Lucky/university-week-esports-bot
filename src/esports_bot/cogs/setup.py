@@ -16,7 +16,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..bot import EsportsBot
-from ..domain.enums import ResourceOwnerType, ResourceType
+from ..domain.enums import ResourceOwnerType, ResourceStatus, ResourceType
 from ..domain.server_blueprint import slug
 from ..domain.setup_plan import (
     ChannelInfo,
@@ -136,6 +136,13 @@ class SetupCog(commands.Cog):
         guild_only=True,
     )
 
+    async def _tracked_resource_ids(self, event_id: int) -> set[int]:
+        """Discord IDs the bot already created for this event — keep, don't re-make."""
+        async with db.session_scope() as s:
+            repo = SqlResourceRepository(s)
+            rows = await repo.list_by_status(event_id, ResourceStatus.CREATED)
+            return {r.discord_id for r in rows if r.discord_id is not None}
+
     async def _event_and_games(self, guild_id: int):
         async with db.session_scope() as s:
             ev = await EventRepository(s).get_active(guild_id)
@@ -158,10 +165,10 @@ class SetupCog(commands.Cog):
             return
 
         snap = snapshot_guild(interaction.guild)
-        preview = plan_preview(
-            snap, num_games=len(shorts),
-            always_preserve_ids=protected_channel_ids(interaction.guild),
+        keep_ids = protected_channel_ids(interaction.guild) | await self._tracked_resource_ids(
+            event_id
         )
+        preview = plan_preview(snap, num_games=len(shorts), always_preserve_ids=keep_ids)
         token = secrets.token_hex(3)
         self._tokens[(interaction.guild_id, interaction.user.id)] = token
 
@@ -325,10 +332,10 @@ class SetupCog(commands.Cog):
             return
 
         snap = snapshot_guild(interaction.guild)
-        preview = plan_preview(
-            snap, num_games=len(shorts),
-            always_preserve_ids=protected_channel_ids(interaction.guild),
+        keep_ids = protected_channel_ids(interaction.guild) | await self._tracked_resource_ids(
+            event_id
         )
+        preview = plan_preview(snap, num_games=len(shorts), always_preserve_ids=keep_ids)
         if not preview.can_proceed:
             await interaction.followup.send(
                 "Cannot proceed:\n" + "\n".join(preview.warnings), ephemeral=True
