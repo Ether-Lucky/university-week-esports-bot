@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..bot import EsportsBot
-from ..domain.enums import ResourceOwnerType
+from ..domain.enums import ResourceOwnerType, ResourceType, TeamMemberRole
 from ..domain.server_blueprint import slug
 from ..infra import db
 from ..infra.discord_gateway import DiscordResourceGateway
@@ -22,6 +22,129 @@ from ..services.errors import ServiceError
 from ..services.team_service import TeamService
 
 log = logging.getLogger(__name__)
+
+
+async def _team_display(session, team_id: int):
+    """Return (team, game, roster_labels) for building the forum embed."""
+    repo = TeamRepository(session)
+    team = await repo.get(team_id)
+    if team is None:
+        return None, None, []
+    game = await session.get(Game, team.game_id)
+    labels = []
+    for m in await repo.active_members(team.id):
+        user = await session.get(User, m.user_id)
+        label = (user.discord_display_name or user.discord_username) if user else "?"
+        if m.role_in_team == TeamMemberRole.LEADER:
+            label += " 👑"
+        labels.append(label)
+    return team, game, labels
+
+
+def _team_embed(team, game_name: str, roster_labels: list[str]) -> discord.Embed:
+    embed = discord.Embed(title=f"TEAM: {team.name}", colour=discord.Colour.blurple())
+    if team.logo_url:
+        embed.set_thumbnail(url=team.logo_url)
+    embed.add_field(name="Game", value=game_name, inline=True)
+    embed.add_field(name="Status", value=team.status.value, inline=True)
+    roster = "\n".join(f"{i}. {n}" for i, n in enumerate(roster_labels, 1)) or "—"
+    embed.add_field(
+        name=f"Roster ({len(roster_labels)}/{team.roster_size})", value=roster, inline=False
+    )
+    embed.set_footer(text=f"Team #{team.id} · press Join Team to request a spot")
+    return embed
+
+
+class JoinTeamButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"esports:jointeam:(?P<team_id>\d+)",
+):
+    """Persistent per-team Join button on the forum post."""
+
+    def __init__(self, team_id: int) -> None:
+        self.team_id = team_id
+        super().__init__(
+            discord.ui.Button(
+                label="Join Team", style=discord.ButtonStyle.success,
+                custom_id=f"esports:jointeam:{team_id}",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match, /):
+        return cls(int(match["team_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None:
+                await interaction.followup.send("No active event.", ephemeral=True)
+                return
+            try:
+                await TeamService(s).join_team(
+                    event_id=event.id, team_id=self.team_id,
+                    user_discord_id=interaction.user.id, username=str(interaction.user),
+                )
+                event_id = event.id
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+                return
+        await _grant_team_role(interaction.guild, event_id, self.team_id, interaction.user)
+        await refresh_team_forum(interaction.guild, event_id, self.team_id)
+        await interaction.followup.send("✅ Joined the team!", ephemeral=True)
+
+
+def _join_view(team_id: int) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(JoinTeamButton(team_id))
+    return view
+
+
+async def post_team_forum(
+    guild: discord.Guild, event_id: int, team_id: int, game_slug: str
+) -> None:
+    """Create the team's forum post with roster + Join button; record its thread ID."""
+    async with db.session_scope() as s:
+        resources = DiscordResourceService(DiscordResourceGateway(guild), SqlResourceRepository(s))
+        forum_id = await resources.find(
+            event_id, ResourceOwnerType.GAME, None, f"game_team_forum:{game_slug}"
+        )
+        team, game, labels = await _team_display(s, team_id)
+    forum = guild.get_channel(forum_id) if forum_id else None
+    if forum is None or team is None or not isinstance(forum, discord.ForumChannel):
+        return
+    embed = _team_embed(team, game.name, labels)
+    created = await forum.create_thread(name=team.name[:100], embed=embed, view=_join_view(team_id))
+    async with db.session_scope() as s:
+        resources = DiscordResourceService(DiscordResourceGateway(guild), SqlResourceRepository(s))
+        await resources.register_existing(
+            event_id, ResourceType.FORUM_POST, ResourceOwnerType.TEAM, team_id,
+            f"team_forum_post:{team_id}", created.thread.id,
+        )
+
+
+async def refresh_team_forum(guild: discord.Guild, event_id: int, team_id: int) -> None:
+    """Update the team's forum post embed to reflect the current roster/status."""
+    async with db.session_scope() as s:
+        resources = DiscordResourceService(DiscordResourceGateway(guild), SqlResourceRepository(s))
+        thread_id = await resources.find(
+            event_id, ResourceOwnerType.TEAM, team_id, f"team_forum_post:{team_id}"
+        )
+        team, game, labels = await _team_display(s, team_id)
+    if thread_id is None or team is None:
+        return
+    thread = guild.get_thread(thread_id)
+    if thread is None:
+        try:
+            thread = await guild.fetch_channel(thread_id)
+        except discord.HTTPException:
+            return
+    try:
+        starter = await thread.fetch_message(thread.id)  # forum starter message id == thread id
+        await starter.edit(embed=_team_embed(team, game.name, labels), view=_join_view(team_id))
+    except discord.HTTPException:
+        pass
 
 
 async def _provision_team(guild: discord.Guild, event_id: int, team, game_name: str) -> None:
@@ -105,6 +228,7 @@ class TeamsCog(commands.Cog):
                 return
         await _provision_team(interaction.guild, event_id, team, game_name)
         await _grant_team_role(interaction.guild, event_id, team_id, interaction.user)
+        await post_team_forum(interaction.guild, event_id, team_id, slug(game_name))
         async with db.session_scope() as s:
             from ..infra.logchannel import post_log
 
@@ -113,7 +237,8 @@ class TeamsCog(commands.Cog):
                 f"🆕 Team '{team_name}' created", f"by {interaction.user.mention}",
             )
         await interaction.followup.send(
-            f"✅ Created team **{team_name}**. You're the leader.", ephemeral=True
+            f"✅ Created team **{team_name}** and posted it to the team forum. You're the leader.",
+            ephemeral=True,
         )
 
     @team.command(name="join", description="Join a team by its ID.")
@@ -134,6 +259,7 @@ class TeamsCog(commands.Cog):
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
         await _grant_team_role(interaction.guild, event_id, team_id, interaction.user)
+        await refresh_team_forum(interaction.guild, event_id, team_id)
         await interaction.followup.send(f"✅ Joined team **{name}**.", ephemeral=True)
 
     @team.command(name="leave", description="Leave your team.")
@@ -144,14 +270,24 @@ class TeamsCog(commands.Cog):
             if event is None:
                 await interaction.followup.send("No active event.", ephemeral=True)
                 return
+            from ..repositories.core import UserRepository
+
+            user = await UserRepository(s).get_or_create(
+                interaction.user.id, str(interaction.user)
+            )
+            membership = await TeamRepository(s).active_membership(event.id, user.id)
+            team_id = membership.team_id if membership else None
             try:
                 await TeamService(s).leave_team(
                     event_id=event.id, user_discord_id=interaction.user.id,
                     username=str(interaction.user),
                 )
+                event_id = event.id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
+        if team_id is not None:
+            await refresh_team_forum(interaction.guild, event_id, team_id)
         await interaction.followup.send("You left your team.", ephemeral=True)
 
     @team.command(name="view", description="View a team's roster.")
@@ -216,4 +352,5 @@ class TeamsCog(commands.Cog):
 
 
 async def setup(bot: EsportsBot) -> None:
+    bot.add_dynamic_items(JoinTeamButton)  # persistent per-team Join buttons
     await bot.add_cog(TeamsCog(bot))

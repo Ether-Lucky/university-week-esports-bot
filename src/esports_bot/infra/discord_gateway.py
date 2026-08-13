@@ -159,7 +159,8 @@ class DiscordResourceGateway:
     def _resolve(self, resource_type: ResourceType, discord_id: int):
         if resource_type == ResourceType.ROLE:
             return self._guild.get_role(discord_id)
+        if resource_type == ResourceType.FORUM_POST:
+            return self._guild.get_thread(discord_id)
         if resource_type in _CHANNEL_TYPES:
             return self._guild.get_channel(discord_id)
-        # FORUM_POST / MESSAGE resolution requires the parent channel; handled elsewhere.
         return self._guild.get_channel(discord_id)
