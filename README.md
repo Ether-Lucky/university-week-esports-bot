@@ -105,11 +105,18 @@ cd "C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports"
    ```powershell
    cd "C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports"
    python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
+   .\.venv\Scripts\Activate.ps1     # PowerShell   (cmd.exe: .venv\Scripts\activate.bat)
    pip install -e .
    ```
    - The `.venv` is a private copy of Python for this project. You'll **activate it every time**
-     before running the bot: `.\.venv\Scripts\Activate.ps1`. When active, your prompt shows `(.venv)`.
+     before running the bot. When active, your prompt shows `(.venv)`.
+   - **Activation command depends on your terminal:**
+     - **PowerShell**: `.\.venv\Scripts\Activate.ps1`
+     - **Command Prompt (cmd.exe)**: `.venv\Scripts\activate.bat`
+   - If you skip activation you must call the venv's Python explicitly:
+     `.venv\Scripts\python.exe -m esports_bot`. Running plain `python -m esports_bot` **without**
+     an active venv uses the system Python (which doesn't have the bot) and fails with
+     `No module named esports_bot`.
    - If PowerShell blocks activation with a script-execution error, run this once, then retry:
      ```powershell
      Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -242,10 +249,13 @@ From the **project root**, with the venv active:
 
 ```powershell
 cd "C:\Users\Ether\Desktop\1SCHOOOL\1 1 1 1 College\esports"
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1        # PowerShell   (cmd.exe: .venv\Scripts\activate.bat)
 python -m esports_bot
 ```
 
+- **Must activate the venv first.** If you see `No module named esports_bot`, the venv isn't active
+  (you're on the system Python). Activate it (see above) — or run without activating using the
+  venv's Python directly: `.venv\Scripts\python.exe -m esports_bot`.
 - **Why the project root?** The bot loads `.env` from the current folder and writes runtime files
   (logs, exports, backups) under `.\data\`. Running from elsewhere means it won't find your `.env`.
 - On success you'll see log lines: starting, database connected, connected as `<bot>`, guild
@@ -391,7 +401,7 @@ tryout date) before `/tryout start` will run.
 | Bot "can't create/assign roles" or 403 errors | Drag the **bot's role above** the roles it manages (step 5.8) and confirm its permissions. |
 | Database "Unavailable" in `/system status` | Check internet, and that `DATABASE_URL` host/password are correct (URL-encode special chars). Supabase project must be running. |
 | `alembic upgrade head` fails to connect | Verify `MIGRATION_DATABASE_URL` (note `+psycopg` and `?sslmode=require`) and the password encoding. |
-| `python -m esports_bot` says module not found | Activate the venv first (`.\.venv\Scripts\Activate.ps1`) and run from the project root. |
+| `No module named esports_bot` | The venv isn't active — you're on system Python. Activate it (PowerShell `.\.venv\Scripts\Activate.ps1`, cmd `.venv\Scripts\activate.bat`) then run, or use `.venv\Scripts\python.exe -m esports_bot`. Run from the project root. |
 | A channel/role got deleted by hand | Run `/system health`; re-run `/setup confirm` to rebuild the base structure. |
 | Applicant didn't get a DM result | They likely have DMs closed; the result is still recorded and shown in the staff log channel. |
 
