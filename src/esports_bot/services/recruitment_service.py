@@ -126,6 +126,11 @@ class RecruitmentService:
         if await self.teams.active_member_count(team.id) >= team.roster_size:
             raise ServiceError("Your team is already full.")
         target = await self.users.get_or_create(target_discord_id, target_username)
+        target_app = await self.teams.approved_application(event_id, target.id)
+        if target_app is None:
+            raise ServiceError("That player isn't an approved applicant.")
+        if target_app.game_id != team.game_id:
+            raise ServiceError("You can only recruit players who applied for your game.")
         if await self.teams.active_membership(event_id, target.id) is not None:
             raise ServiceError("That player is already on a team.")
         request = RecruitmentRequest(
