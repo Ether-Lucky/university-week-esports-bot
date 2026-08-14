@@ -21,6 +21,151 @@ from ..services.recruitment_service import RecruitmentService
 from .checks import is_staff
 
 
+async def _finalize_accept(client, info) -> None:
+    """After a request is accepted: grant the team role, refresh the forum, close the
+    joining player's LFT post, and DM them."""
+    guild = client.get_guild(info.guild_id)
+    if guild is None:
+        return
+    from .teams import grant_team_role, refresh_team_forum
+
+    await grant_team_role(guild, info.event_id, info.team_id, info.joining_discord_id)
+    await refresh_team_forum(guild, info.event_id, info.team_id)
+    async with db.session_scope() as s:
+        try:
+            thread_id = await RecruitmentService(s).cancel_lft(
+                event_id=info.event_id, target_discord_id=info.joining_discord_id,
+                target_username=info.joining_name, actor_discord_id=info.joining_discord_id,
+                actor_username=info.joining_name,
+            )
+        except ServiceError:
+            thread_id = None
+    if thread_id:
+        thread = guild.get_thread(thread_id)
+        if thread is None:
+            try:
+                thread = await guild.fetch_channel(thread_id)
+            except discord.HTTPException:
+                thread = None
+        if thread is not None:
+            try:
+                await thread.delete()
+            except discord.HTTPException:
+                pass
+    member_user = client.get_user(info.joining_discord_id)
+    if member_user:
+        try:
+            await member_user.send(
+                f"🎉 You've joined **{info.team_name}**! Check your team channels."
+            )
+        except discord.HTTPException:
+            pass
+
+
+class RejectReasonModal(discord.ui.Modal, title="Reject — reason"):
+    reason = discord.ui.TextInput(
+        label="Reason", style=discord.TextStyle.paragraph, max_length=500, required=True
+    )
+
+    def __init__(self, request_id: int) -> None:
+        super().__init__()
+        self.request_id = request_id
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        async with db.session_scope() as s:
+            try:
+                info = await RecruitmentService(s).reject_request(
+                    request_id=self.request_id, actor_discord_id=interaction.user.id,
+                    actor_username=str(interaction.user), reason=self.reason.value,
+                )
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}")
+                return
+        requester = interaction.client.get_user(info.requester_discord_id)
+        if requester:
+            kind_word = "join request" if info.kind == "JOIN" else "recruitment offer"
+            try:
+                await requester.send(
+                    f"❌ Your {kind_word} for **{info.team_name}** was rejected.\n"
+                    f"Reason: {info.reason}"
+                )
+            except discord.HTTPException:
+                pass
+        await interaction.followup.send("Rejected — the requester was notified with your reason.")
+
+
+class AcceptReqButton(
+    discord.ui.DynamicItem[discord.ui.Button], template=r"esports:reqaccept:(?P<rid>\d+)"
+):
+    def __init__(self, request_id: int) -> None:
+        self.rid = request_id
+        super().__init__(
+            discord.ui.Button(
+                label="Accept", style=discord.ButtonStyle.success,
+                custom_id=f"esports:reqaccept:{request_id}",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match, /):
+        return cls(int(match["rid"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer()
+        async with db.session_scope() as s:
+            try:
+                info = await RecruitmentService(s).accept_request(
+                    request_id=self.rid, actor_discord_id=interaction.user.id,
+                    actor_username=str(interaction.user),
+                )
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}")
+                return
+        await _finalize_accept(interaction.client, info)
+        await interaction.followup.send(
+            f"✅ Accepted — **{info.joining_name}** is now on **{info.team_name}**."
+        )
+
+
+class RejectReqButton(
+    discord.ui.DynamicItem[discord.ui.Button], template=r"esports:reqreject:(?P<rid>\d+)"
+):
+    def __init__(self, request_id: int) -> None:
+        self.rid = request_id
+        super().__init__(
+            discord.ui.Button(
+                label="Reject", style=discord.ButtonStyle.danger,
+                custom_id=f"esports:reqreject:{request_id}",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match, /):
+        return cls(int(match["rid"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(RejectReasonModal(self.rid))
+
+
+async def send_request_dm(client, recipient_discord_id: int, embed, request_id: int) -> bool:
+    """DM the decider with Accept/Reject buttons. Returns False if the DM failed."""
+    user = client.get_user(recipient_discord_id)
+    if user is None:
+        try:
+            user = await client.fetch_user(recipient_discord_id)
+        except discord.HTTPException:
+            return False
+    view = discord.ui.View(timeout=None)
+    view.add_item(AcceptReqButton(request_id))
+    view.add_item(RejectReqButton(request_id))
+    try:
+        await user.send(embed=embed, view=view)
+        return True
+    except discord.HTTPException:
+        return False
+
+
 class RecruitButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"esports:recruit:(?P<uid>\d+)",
@@ -67,19 +212,32 @@ class RecruitButton(
                     timeout_minutes=interaction.client.settings.recruit_timeout_minutes,
                 )
                 request_id = request.id
+                team = await TeamRepository(s).get(membership.team_id)
+                team_name, team_id = team.name, team.id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
-        if target_member:
-            try:
-                await target_member.send(
-                    f"You've been recruited! Use `/recruit accept {request_id}` or "
-                    f"`/recruit decline {request_id}`."
-                )
-            except discord.HTTPException:
-                pass
+            resources = DiscordResourceService(
+                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
+            )
+            forum_thread_id = await resources.find(
+                event.id, ResourceOwnerType.TEAM, team_id, f"team_forum_post:{team_id}"
+            )
+        embed = discord.Embed(
+            title="📣 Recruitment Offer", colour=discord.Colour.blurple(),
+            description=f"Team **{team_name}** wants to recruit you!",
+        )
+        if forum_thread_id:
+            link = f"https://discord.com/channels/{interaction.guild_id}/{forum_thread_id}"
+            embed.add_field(
+                name="The team", value=f"[View {team_name}'s post]({link})", inline=False
+            )
+        embed.set_footer(text="Accept to join, or Reject with a reason.")
+        delivered = await send_request_dm(interaction.client, self.target_id, embed, request_id)
         await interaction.followup.send(
-            f"Recruitment request #{request_id} sent to {target_name}.", ephemeral=True
+            f"Recruitment offer sent to {target_name}." if delivered
+            else f"Offer created but couldn't DM them (request #{request_id}).",
+            ephemeral=True,
         )
 
 
@@ -228,9 +386,10 @@ class RecruitmentCog(commands.Cog):
             if event is None:
                 await interaction.followup.send("No active event.", ephemeral=True)
                 return
-            membership = await TeamRepository(s).active_membership(
-                event.id, (await _uid(s, interaction.user.id, str(interaction.user)))
+            leader = await UserRepository(s).get_or_create(
+                interaction.user.id, str(interaction.user)
             )
+            membership = await TeamRepository(s).active_membership(event.id, leader.id)
             if membership is None:
                 await interaction.followup.send("You are not on a team.", ephemeral=True)
                 return
@@ -243,62 +402,77 @@ class RecruitmentCog(commands.Cog):
                     timeout_minutes=self.bot.settings.recruit_timeout_minutes,
                 )
                 request_id = request.id
+                team = await TeamRepository(s).get(membership.team_id)
+                team_name, team_id = team.name, team.id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
-        try:
-            await member.send(
-                f"You've been recruited! Use `/recruit accept {request_id}` or "
-                f"`/recruit decline {request_id}` (expires soon)."
+            resources = DiscordResourceService(
+                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
             )
-        except discord.HTTPException:
-            pass
-        await interaction.followup.send(f"Recruitment request #{request_id} sent.", ephemeral=True)
+            forum_thread_id = await resources.find(
+                event.id, ResourceOwnerType.TEAM, team_id, f"team_forum_post:{team_id}"
+            )
+        embed = discord.Embed(
+            title="📣 Recruitment Offer", colour=discord.Colour.blurple(),
+            description=f"Team **{team_name}** wants to recruit you!",
+        )
+        if forum_thread_id:
+            link = f"https://discord.com/channels/{interaction.guild_id}/{forum_thread_id}"
+            embed.add_field(
+                name="The team", value=f"[View {team_name}'s post]({link})", inline=False
+            )
+        embed.set_footer(text="Accept to join, or Reject with a reason.")
+        delivered = await send_request_dm(interaction.client, member.id, embed, request_id)
+        await interaction.followup.send(
+            f"Recruitment offer sent to {member.mention}." if delivered
+            else f"Offer created but couldn't DM them (request #{request_id}).",
+            ephemeral=True,
+        )
 
-    @recruit.command(name="accept", description="Accept a recruitment request.")
+    @recruit.command(name="accept", description="Accept a request (fallback for the DM button).")
     async def accept(self, interaction: discord.Interaction, request_id: int) -> None:
-        await self._resolve(interaction, request_id, accept=True)
-
-    @recruit.command(name="decline", description="Decline a recruitment request.")
-    async def decline(self, interaction: discord.Interaction, request_id: int) -> None:
-        await self._resolve(interaction, request_id, accept=False)
-
-    async def _resolve(self, interaction, request_id: int, *, accept: bool) -> None:
         await interaction.response.defer(ephemeral=True)
         async with db.session_scope() as s:
-            event = await EventRepository(s).get_active(interaction.guild_id)
-            if event is None:
-                await interaction.followup.send("No active event.", ephemeral=True)
-                return
-            svc = RecruitmentService(s)
             try:
-                if accept:
-                    await svc.accept(
-                        event_id=event.id, request_id=request_id,
-                        actor_discord_id=interaction.user.id,
-                        actor_username=str(interaction.user),
-                    )
-                    msg = "✅ You joined the team!"
-                else:
-                    await svc.decline(
-                        event_id=event.id, request_id=request_id,
-                        actor_discord_id=interaction.user.id,
-                        actor_username=str(interaction.user),
-                    )
-                    msg = "Declined."
+                info = await RecruitmentService(s).accept_request(
+                    request_id=request_id, actor_discord_id=interaction.user.id,
+                    actor_username=str(interaction.user),
+                )
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
-        await interaction.followup.send(msg, ephemeral=True)
+        await _finalize_accept(interaction.client, info)
+        await interaction.followup.send(
+            f"✅ Accepted — **{info.joining_name}** is now on **{info.team_name}**.",
+            ephemeral=True,
+        )
 
-
-async def _uid(session, discord_id: int, username: str) -> int:
-    from ..repositories.core import UserRepository
-
-    user = await UserRepository(session).get_or_create(discord_id, username)
-    return user.id
+    @recruit.command(name="decline", description="Decline a request with a reason.")
+    async def decline(
+        self, interaction: discord.Interaction, request_id: int, reason: str
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            try:
+                info = await RecruitmentService(s).reject_request(
+                    request_id=request_id, actor_discord_id=interaction.user.id,
+                    actor_username=str(interaction.user), reason=reason,
+                )
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+                return
+        requester = interaction.client.get_user(info.requester_discord_id)
+        if requester:
+            try:
+                await requester.send(
+                    f"❌ Your request for **{info.team_name}** was rejected. Reason: {info.reason}"
+                )
+            except discord.HTTPException:
+                pass
+        await interaction.followup.send("Rejected — the requester was notified.", ephemeral=True)
 
 
 async def setup(bot: EsportsBot) -> None:
-    bot.add_dynamic_items(RecruitButton)  # persistent Recruit buttons on LFT posts
+    bot.add_dynamic_items(RecruitButton, AcceptReqButton, RejectReqButton)
     await bot.add_cog(RecruitmentCog(bot))

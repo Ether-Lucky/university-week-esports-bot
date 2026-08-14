@@ -16,9 +16,11 @@ from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
 from ..infra.resource_repository import SqlResourceRepository
 from ..models import Game, User
-from ..repositories.core import EventRepository
+from ..repositories.core import EventRepository, UserRepository
+from ..repositories.recruitment import RecruitmentRepository
 from ..repositories.teams import TeamRepository
 from ..services.errors import ServiceError
+from ..services.recruitment_service import RecruitmentService
 from ..services.team_service import TeamService
 
 log = logging.getLogger(__name__)
@@ -76,23 +78,54 @@ class JoinTeamButton(
 
     async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
-        async with db.session_scope() as s:
-            event = await EventRepository(s).get_active(interaction.guild_id)
-            if event is None:
-                await interaction.followup.send("No active event.", ephemeral=True)
-                return
-            try:
-                await TeamService(s).join_team(
-                    event_id=event.id, team_id=self.team_id,
-                    user_discord_id=interaction.user.id, username=str(interaction.user),
-                )
-                event_id = event.id
-            except (ServiceError, ValueError) as exc:
-                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
-                return
-        await _grant_team_role(interaction.guild, event_id, self.team_id, interaction.user)
-        await refresh_team_forum(interaction.guild, event_id, self.team_id)
-        await interaction.followup.send("✅ Joined the team!", ephemeral=True)
+        await submit_join_request(interaction, self.team_id)
+
+
+async def submit_join_request(interaction: discord.Interaction, team_id: int) -> None:
+    """Create a join request and DM the team leader for approval."""
+    async with db.session_scope() as s:
+        event = await EventRepository(s).get_active(interaction.guild_id)
+        if event is None:
+            await interaction.followup.send("No active event.", ephemeral=True)
+            return
+        try:
+            request = await RecruitmentService(s).request_join(
+                event_id=event.id, team_id=team_id,
+                applicant_discord_id=interaction.user.id, username=str(interaction.user),
+                timeout_minutes=interaction.client.settings.recruit_timeout_minutes,
+            )
+            request_id = request.id
+            team = await TeamRepository(s).get(team_id)
+            leader = await s.get(User, team.leader_user_id)
+            leader_discord_id, team_name, guild_id = (
+                leader.discord_user_id, team.name, interaction.guild_id
+            )
+            applicant = await UserRepository(s).get_or_create(
+                interaction.user.id, str(interaction.user)
+            )
+            lft = await RecruitmentRepository(s).open_post_for_user(event.id, applicant.id)
+            lft_thread_id = lft.forum_post_id if lft else None
+        except (ServiceError, ValueError) as exc:
+            await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+            return
+
+    from .recruitment import send_request_dm
+
+    embed = discord.Embed(
+        title="📥 Join Request", colour=discord.Colour.blurple(),
+        description=f"**{interaction.user.display_name}** wants to join your team **{team_name}**.",
+    )
+    if lft_thread_id:
+        link = f"https://discord.com/channels/{guild_id}/{lft_thread_id}"
+        embed.add_field(name="Their profile", value=f"[View their LFT post]({link})", inline=False)
+    embed.set_footer(text="Accept to add them, or Reject with a reason.")
+    delivered = await send_request_dm(interaction.client, leader_discord_id, embed, request_id)
+    msg = (
+        "✅ Your request to join was sent to the team leader for approval."
+        if delivered
+        else f"✅ Request sent (couldn't DM the leader — request #{request_id})."
+    )
+    await interaction.followup.send(msg, ephemeral=True)
 
 
 def _join_view(team_id: int) -> discord.ui.View:
@@ -182,7 +215,9 @@ async def _provision_team(guild: discord.Guild, event_id: int, team, game_name: 
             await voice.set_permissions(role, view_channel=True, connect=True)
 
 
-async def _grant_team_role(guild: discord.Guild, event_id: int, team_id: int, member) -> None:
+async def grant_team_role(
+    guild: discord.Guild, event_id: int, team_id: int, discord_user_id: int
+) -> None:
     async with db.session_scope() as s:
         resources = DiscordResourceService(
             DiscordResourceGateway(guild), SqlResourceRepository(s)
@@ -190,7 +225,9 @@ async def _grant_team_role(guild: discord.Guild, event_id: int, team_id: int, me
         role_id = await resources.find(
             event_id, ResourceOwnerType.TEAM, team_id, f"team_role:{team_id}"
         )
-    if role_id and (role := guild.get_role(role_id)) and member:
+    member = guild.get_member(discord_user_id)
+    role = guild.get_role(role_id) if role_id else None
+    if member and role:
         await member.add_roles(role, reason="Team membership")
 
 
@@ -230,7 +267,7 @@ class TeamsCog(commands.Cog):
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
         await _provision_team(interaction.guild, event_id, team, game_name)
-        await _grant_team_role(interaction.guild, event_id, team_id, interaction.user)
+        await grant_team_role(interaction.guild, event_id, team_id, interaction.user.id)
         await post_team_forum(interaction.guild, event_id, team_id, slug(game_name))
         async with db.session_scope() as s:
             from ..infra.logchannel import post_log
@@ -244,26 +281,10 @@ class TeamsCog(commands.Cog):
             ephemeral=True,
         )
 
-    @team.command(name="join", description="Join a team by its ID.")
+    @team.command(name="join", description="Request to join a team by its ID (leader approves).")
     async def join(self, interaction: discord.Interaction, team_id: int) -> None:
         await interaction.response.defer(ephemeral=True)
-        async with db.session_scope() as s:
-            event = await EventRepository(s).get_active(interaction.guild_id)
-            if event is None:
-                await interaction.followup.send("No active event.", ephemeral=True)
-                return
-            try:
-                team = await TeamService(s).join_team(
-                    event_id=event.id, team_id=team_id,
-                    user_discord_id=interaction.user.id, username=str(interaction.user),
-                )
-                name, event_id = team.name, event.id
-            except (ServiceError, ValueError) as exc:
-                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
-                return
-        await _grant_team_role(interaction.guild, event_id, team_id, interaction.user)
-        await refresh_team_forum(interaction.guild, event_id, team_id)
-        await interaction.followup.send(f"✅ Joined team **{name}**.", ephemeral=True)
+        await submit_join_request(interaction, team_id)
 
     @team.command(name="leave", description="Leave your team.")
     async def leave(self, interaction: discord.Interaction) -> None:
