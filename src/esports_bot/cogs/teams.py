@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..bot import EsportsBot
-from ..domain.enums import ResourceOwnerType, ResourceType, TeamMemberRole
+from ..domain.enums import ResourceOwnerType, ResourceType, TeamMemberRole, TeamStatus
 from ..domain.server_blueprint import slug
 from ..infra import db
 from ..infra.discord_gateway import DiscordResourceGateway
@@ -165,18 +165,21 @@ async def _provision_team(guild: discord.Guild, event_id: int, team, game_name: 
             event_id, ResourceOwnerType.TEAM, team.id, f"team_text:{team.id}",
             f"team-{slug(team.name)}", category_id=cat_id,
         )
-        await resources.ensure_voice_channel(
+        voice_id = await resources.ensure_voice_channel(
             event_id, ResourceOwnerType.TEAM, team.id, f"team_voice:{team.id}",
             f"team-{slug(team.name)}", category_id=cat_id,
         )
-    # Lock the team channels to the team role + staff.
+    # Lock both team channels to the team role (staff inherit via game category).
     role = guild.get_role(role_id)
     if role:
-        for ch_id in (text_id,):
-            ch = guild.get_channel(ch_id)
-            if ch:
-                await ch.set_permissions(guild.default_role, view_channel=False)
-                await ch.set_permissions(role, view_channel=True, send_messages=True)
+        text = guild.get_channel(text_id)
+        if text:
+            await text.set_permissions(guild.default_role, view_channel=False)
+            await text.set_permissions(role, view_channel=True, send_messages=True)
+        voice = guild.get_channel(voice_id)
+        if voice:
+            await voice.set_permissions(guild.default_role, view_channel=False, connect=False)
+            await voice.set_permissions(role, view_channel=True, connect=True)
 
 
 async def _grant_team_role(guild: discord.Guild, event_id: int, team_id: int, member) -> None:
@@ -283,11 +286,17 @@ class TeamsCog(commands.Cog):
                     username=str(interaction.user),
                 )
                 event_id = event.id
+                team = await TeamRepository(s).get(team_id) if team_id else None
+                disbanded = team is not None and team.status == TeamStatus.DISBANDED
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
         if team_id is not None:
-            await refresh_team_forum(interaction.guild, event_id, team_id)
+            if disbanded:
+                # Last member left -> tear down the team's channels, role, and forum post.
+                await self._teardown_team(interaction.guild, event_id, team_id)
+            else:
+                await refresh_team_forum(interaction.guild, event_id, team_id)
         await interaction.followup.send("You left your team.", ephemeral=True)
 
     @team.command(name="view", description="View a team's roster.")
