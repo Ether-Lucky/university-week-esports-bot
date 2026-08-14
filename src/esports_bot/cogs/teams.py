@@ -215,6 +215,36 @@ async def _provision_team(guild: discord.Guild, event_id: int, team, game_name: 
             await voice.set_permissions(role, view_channel=True, connect=True)
 
 
+async def _delete_forum_thread(guild: discord.Guild, thread_id: int | None) -> None:
+    if thread_id is None:
+        return
+    thread = guild.get_thread(thread_id)
+    if thread is None:
+        try:
+            thread = await guild.fetch_channel(thread_id)
+        except discord.HTTPException:
+            return
+    try:
+        await thread.delete()
+    except discord.HTTPException:
+        pass
+
+
+async def close_own_lft(
+    guild: discord.Guild, event_id: int, discord_user_id: int, name: str
+) -> None:
+    """If the user has an open LFT post, close it + delete its thread (they're on a team now)."""
+    async with db.session_scope() as s:
+        try:
+            thread_id = await RecruitmentService(s).cancel_lft(
+                event_id=event_id, target_discord_id=discord_user_id, target_username=name,
+                actor_discord_id=discord_user_id, actor_username=name,
+            )
+        except ServiceError:
+            thread_id = None
+    await _delete_forum_thread(guild, thread_id)
+
+
 async def grant_team_role(
     guild: discord.Guild, event_id: int, team_id: int, discord_user_id: int
 ) -> None:
@@ -269,6 +299,10 @@ class TeamsCog(commands.Cog):
         await _provision_team(interaction.guild, event_id, team, game_name)
         await grant_team_role(interaction.guild, event_id, team_id, interaction.user.id)
         await post_team_forum(interaction.guild, event_id, team_id, slug(game_name))
+        # Leader now has a team — close their own LFT post if they had one.
+        await close_own_lft(
+            interaction.guild, event_id, interaction.user.id, str(interaction.user)
+        )
         async with db.session_scope() as s:
             from ..infra.logchannel import post_log
 
