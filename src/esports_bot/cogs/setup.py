@@ -93,6 +93,58 @@ def _flow_embed(event_name: str) -> discord.Embed:
     return embed
 
 
+def _member_commands_embed(event_name: str) -> discord.Embed:
+    """Command reference for participants — posted in #how-it-works below the flow guide."""
+    embed = discord.Embed(
+        title=f"💬 {event_name} — Your Commands",
+        colour=discord.Colour.blurple(),
+        description=(
+            "Every slash command you can use as a participant. Type `/` in any channel "
+            "to see them. (Most need you to be an **approved Applicant** first.)"
+        ),
+    )
+    embed.add_field(
+        name="👥 Teams",
+        value=(
+            "• `/team create name:<name>` — start a team; you become the leader\n"
+            "• `/team join team_id:<id>` — ask to join (the leader approves)\n"
+            "• `/team view team_id:<id>` — see a team's roster\n"
+            "• `/team leave` — leave your current team\n"
+            "• `/team disband` — leaders: disband your team"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🔎 Finding a team",
+        value=(
+            "• `/findteam ign:<name> role:<role>` — post yourself on the LFT forum "
+            "so leaders can recruit you\n"
+            "• `/lft cancel` — take down your looking-for-team post"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📣 Recruiting (team leaders)",
+        value=(
+            "• `/recruit player` — invite a player to your team\n"
+            "• `/recruit accept` · `/recruit decline reason:<why>` — respond to join "
+            "requests (you can also use the buttons in your DMs)"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🎮 Your application & tryout",
+        value=(
+            "• `/switch-game game:<name>` — change your game (before joining a team)\n"
+            "• `/tryout status` — check tryout readiness for your game\n"
+            "• `/tryout checkin` — check in before your tryout starts"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Stuck? Read the flow guide above or ask staff in your game's channel.")
+    return embed
+
+
 def _staff_guide_embed(event_name: str) -> discord.Embed:
     """Command reference for staff/committee — posted in #staff-commands."""
     embed = discord.Embed(
@@ -407,6 +459,11 @@ class SetupCog(commands.Cog):
 
         member_channel = await self._post_or_update_guide(
             interaction.guild, event_id, "ch_info", "guide_message", _flow_embed(event_name)
+        )
+        # Second message in the same channel: the member command reference.
+        await self._post_or_update_guide(
+            interaction.guild, event_id, "ch_info", "member_commands_message",
+            _member_commands_embed(event_name),
         )
         staff_channel = await self._post_or_update_guide(
             interaction.guild, event_id, "ch_staff_commands", "staff_guide_message",
