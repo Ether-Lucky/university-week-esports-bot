@@ -264,6 +264,18 @@ class SetupCog(commands.Cog):
                 ),
                 inline=False,
             )
+        if preview.remove:
+            lines = [f"• {kind}: {name}" for kind, _id, name in preview.remove]
+            shown, text = [], ""
+            for line in lines:
+                if len(text) + len(line) + 1 > 1000:
+                    break
+                shown.append(line)
+                text += line + "\n"
+            hidden = len(lines) - len(shown)
+            if hidden:
+                text += f"…and {hidden} more"
+            embed.add_field(name=f"🗑️ Will remove ({len(lines)})", value=text, inline=False)
         if preview.warnings:
             embed.add_field(
                 name="⚠️ Warnings",
