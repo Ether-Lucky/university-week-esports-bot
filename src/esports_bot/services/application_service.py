@@ -76,6 +76,16 @@ class ApplicationService:
         )
         return app
 
+    async def set_review_message(
+        self, application_id: int, channel_id: int, message_id: int
+    ) -> None:
+        """Record the staff-review message so approve/reject can edit it later."""
+        app = await self.apps.get(application_id)
+        if app is not None:
+            app.review_channel_id = channel_id
+            app.review_message_id = message_id
+            await self._s.flush()
+
     async def _transition(
         self, application_id: int, to_status: ApplicationStatus, *,
         actor_discord_id: int, actor_username: str, reason: str | None = None,

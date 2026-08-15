@@ -56,6 +56,7 @@ class ApplicationModal(discord.ui.Modal):
                 app_id = app.id
                 full_name = app.full_name
                 email = app.school_email
+                facebook_url = app.facebook_url
         except (ServiceError, ValueError) as exc:
             await interaction.followup.send(f"❌ {exc}", ephemeral=True)
             return
@@ -63,9 +64,9 @@ class ApplicationModal(discord.ui.Modal):
             "✅ Application submitted! Staff will review it. You'll be notified of the result.",
             ephemeral=True,
         )
-        await self._post_review(interaction, app_id, full_name, email)
+        await self._post_review(interaction, app_id, full_name, email, facebook_url)
 
-    async def _post_review(self, interaction, app_id, full_name, email) -> None:
+    async def _post_review(self, interaction, app_id, full_name, email, facebook_url) -> None:
         async with db.session_scope() as s:
             resources = DiscordResourceService(
                 DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
@@ -77,10 +78,15 @@ class ApplicationModal(discord.ui.Modal):
             embed = discord.Embed(title=f"New application #{app_id}", colour=discord.Colour.gold())
             embed.add_field(name="Applicant", value=f"{interaction.user.mention} ({full_name})")
             embed.add_field(name="Email", value=email, inline=False)
+            embed.add_field(
+                name="Facebook", value=f"[Open profile]({facebook_url})", inline=False
+            )
             embed.set_footer(
                 text=f"/application approve {app_id}  ·  /application reject {app_id} <reason>"
             )
-            await channel.send(embed=embed)
+            msg = await channel.send(embed=embed)
+            async with db.session_scope() as s:
+                await ApplicationService(s).set_review_message(app_id, channel.id, msg.id)
 
 
 class GameSelect(discord.ui.Select):
@@ -183,6 +189,30 @@ class ApplicationsCog(commands.Cog):
             except discord.HTTPException:
                 pass  # DMs closed — fall back handled by staff channel logs
 
+    async def _update_review_message(
+        self, guild: discord.Guild, channel_id: int | None, message_id: int | None,
+        *, title: str, colour: discord.Colour, decision: str,
+    ) -> None:
+        """Edit the staff-review message in place to reflect the decision."""
+        if not channel_id or not message_id:
+            return
+        channel = guild.get_channel(channel_id)
+        if channel is None:
+            return
+        try:
+            msg = await channel.fetch_message(message_id)
+        except discord.HTTPException:
+            return
+        embed = msg.embeds[0] if msg.embeds else discord.Embed()
+        embed.title = title
+        embed.colour = colour
+        embed.add_field(name="Decision", value=decision, inline=False)
+        embed.set_footer(text=None)  # action taken — drop the command hints
+        try:
+            await msg.edit(embed=embed)
+        except discord.HTTPException:
+            pass
+
     @application.command(name="approve", description="Approve an application.")
     async def approve(self, interaction: discord.Interaction, application_id: int) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -202,6 +232,8 @@ class ApplicationsCog(commands.Cog):
                 event_id = event.id
                 game = await s.get(Game, app.game_id)
                 game_slug, game_name = slug(game.name), game.name
+                review_channel_id = app.review_channel_id
+                review_message_id = app.review_message_id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
@@ -227,6 +259,12 @@ class ApplicationsCog(commands.Cog):
             "• **Switch game:** `/switch-game game:<name>` (before joining a team).\n\n"
             "See **#how-it-works** for the full guide. Good luck! 🎮",
         )
+        await self._update_review_message(
+            interaction.guild, review_channel_id, review_message_id,
+            title=f"✅ Application #{application_id} — Approved",
+            colour=discord.Colour.green(),
+            decision=f"Approved by {interaction.user.mention}",
+        )
         await interaction.followup.send(f"Approved application #{application_id}.", ephemeral=True)
 
     @application.command(name="reject", description="Reject an application with a reason.")
@@ -247,6 +285,8 @@ class ApplicationsCog(commands.Cog):
                 from ..models import User
                 user = await s.get(User, app.user_id)
                 discord_id = user.discord_user_id
+                review_channel_id = app.review_channel_id
+                review_message_id = app.review_message_id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
@@ -259,6 +299,12 @@ class ApplicationsCog(commands.Cog):
             )
         await self._notify(
             interaction.guild, discord_id, f"Your application was not accepted. Reason: {reason}"
+        )
+        await self._update_review_message(
+            interaction.guild, review_channel_id, review_message_id,
+            title=f"❌ Application #{application_id} — Rejected",
+            colour=discord.Colour.red(),
+            decision=f"Rejected by {interaction.user.mention}\n**Reason:** {reason}",
         )
         await interaction.followup.send(f"Rejected application #{application_id}.", ephemeral=True)
 

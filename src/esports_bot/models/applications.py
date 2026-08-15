@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..domain.enums import ApplicationStatus
-from .base import Base, TimestampMixin
+from .base import Base, Snowflake, TimestampMixin
 
 _ACTIVE = "status IN ('PENDING','APPROVED','ASSIGNED_TO_TEAM')"
 
@@ -47,6 +47,10 @@ class Application(Base, TimestampMixin):
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+
+    # Discord message posted to the staff review channel, so approve/reject can edit it.
+    review_channel_id: Mapped[int | None] = mapped_column(Snowflake)
+    review_message_id: Mapped[int | None] = mapped_column(Snowflake)
 
     __table_args__ = (
         CheckConstraint(
