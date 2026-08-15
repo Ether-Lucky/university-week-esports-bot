@@ -30,8 +30,9 @@ class ApplicationService:
     async def submit(
         self, *, event_id: int, game_id: int,
         discord_user_id: int, username: str, display_name: str | None,
-        first_name: str, full_name: str, school_email: str,
+        full_name: str, school_email: str,
         facebook_url: str, year_section: str, middle_initial: str | None = None,
+        first_name: str | None = None,
     ) -> Application:
         event = await self.events.get(event_id)
         if event is None:
@@ -41,8 +42,13 @@ class ApplicationService:
         if await self.games.get_event_game(event_id, game_id) is None:
             raise ServiceError("That game is not part of this event.")
 
-        first_name = validators.sanitize_name(first_name, max_len=100, field="First name")
         full_name = validators.sanitize_name(full_name, max_len=200, field="Full name")
+        # First name is no longer collected separately — derive it from the full name.
+        first_name = (
+            validators.sanitize_name(first_name, max_len=100, field="First name")
+            if first_name
+            else full_name.split()[0][:100]
+        )
         year_section = validators.sanitize_name(year_section, max_len=50, field="Year & section")
         school_email = validators.validate_school_email(school_email, event.email_domain)
         facebook_url = validators.validate_facebook_url(facebook_url)

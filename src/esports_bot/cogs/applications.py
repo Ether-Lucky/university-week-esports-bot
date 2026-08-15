@@ -30,13 +30,12 @@ class ApplicationModal(discord.ui.Modal):
         self.bot = bot
         self.event_id = event_id
         self.game_id = game_id
-        self.first_name = discord.ui.TextInput(label="First name", max_length=100)
         self.full_name = discord.ui.TextInput(label="Full name", max_length=200)
         self.school_email = discord.ui.TextInput(label="School email", max_length=255)
         self.year_section = discord.ui.TextInput(label="Year & section", max_length=50)
         self.facebook = discord.ui.TextInput(label="Facebook profile URL", max_length=500)
         for item in (
-            self.first_name, self.full_name, self.school_email,
+            self.full_name, self.school_email,
             self.year_section, self.facebook,
         ):
             self.add_item(item)
@@ -49,7 +48,7 @@ class ApplicationModal(discord.ui.Modal):
                     event_id=self.event_id, game_id=self.game_id,
                     discord_user_id=interaction.user.id, username=str(interaction.user),
                     display_name=interaction.user.display_name,
-                    first_name=self.first_name.value, full_name=self.full_name.value,
+                    full_name=self.full_name.value,
                     school_email=self.school_email.value, facebook_url=self.facebook.value,
                     year_section=self.year_section.value,
                 )
