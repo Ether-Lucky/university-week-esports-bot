@@ -93,6 +93,70 @@ def _flow_embed(event_name: str) -> discord.Embed:
     return embed
 
 
+def _staff_guide_embed(event_name: str) -> discord.Embed:
+    """Command reference for staff/committee — posted in #staff-commands."""
+    embed = discord.Embed(
+        title=f"🛠️ {event_name} — Staff Command Guide",
+        colour=discord.Colour.dark_teal(),
+        description=(
+            "Commands here are **staff-only**. Members can't run them — their guide "
+            "lives in **#how-it-works**. Steps roughly follow the event lifecycle."
+        ),
+    )
+    embed.add_field(
+        name="🏗️ Setup & event (Head)",
+        value=(
+            "• `/setup preview` → `/setup confirm token:<token>` — build the server\n"
+            "• `/setup grant-audience` — give Audience to existing members\n"
+            "• `/setup post-guide` — (re)post these guides\n"
+            "• `/event create` · `/event configure add-game` · `/event advance` · "
+            "`/event status`\n"
+            "• `/staff add` · `/staff remove` · `/staff list`"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📝 Applications",
+        value=(
+            "• `/application post-button` — place the Apply button in **#apply**\n"
+            "• `/application list` — pending applications\n"
+            "• `/application approve application_id:<id>`\n"
+            "• `/application reject application_id:<id> reason:<why>`\n"
+            "• `/application backfill-roles` — re-grant roles to approved applicants"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🎯 Mechanics & tournament",
+        value=(
+            "• `/mechanics create` · `/mechanics publish` — per-game rules\n"
+            "• `/tournament set` — set the Challonge bracket URL"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🏆 Tryouts & results",
+        value=(
+            "• `/tryout schedule` · `/tryout status` · `/tryout start`\n"
+            "• `/match battle-ended` · `/match correct reason:<why>` — record results\n"
+            "• `/tryout crown` · `/tryout end` — crown champions & finalize"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🧹 Moderation & data",
+        value=(
+            "• `/lft delete` — remove a member's looking-for-team post\n"
+            "• `/team disband` — disband a team\n"
+            "• `/export` — download event data as CSV\n"
+            "• `/system status` · `/system archive`"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Only Head/Committee/staff can use these — participants get an error.")
+    return embed
+
+
 def snapshot_guild(guild: discord.Guild) -> GuildSnapshot:
     roles = tuple(
         RoleInfo(id=r.id, name=r.name, managed=r.managed, is_default=r.is_default())
@@ -273,36 +337,24 @@ class SetupCog(commands.Cog):
             ephemeral=True,
         )
 
-    @setup_group.command(
-        name="post-guide", description="Post the 'how it works' guide in #how-it-works."
-    )
-    async def post_guide(self, interaction: discord.Interaction) -> None:
-        if not is_head_or_owner(interaction, self.bot.settings):
-            await interaction.response.send_message("E-Sports Head only.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True)
+    async def _post_or_update_guide(
+        self, guild: discord.Guild, event_id: int, channel_purpose: str,
+        guide_purpose: str, embed: discord.Embed,
+    ) -> discord.abc.GuildChannel | None:
+        """Post (or edit in place) one guide message. Returns the channel it lives in, or None."""
         async with db.session_scope() as s:
-            event = await EventRepository(s).get_active(interaction.guild_id)
-            if event is None:
-                await interaction.followup.send("No active event.", ephemeral=True)
-                return
             repo = SqlResourceRepository(s)
-            resources = DiscordResourceService(DiscordResourceGateway(interaction.guild), repo)
+            resources = DiscordResourceService(DiscordResourceGateway(guild), repo)
             channel_id = await resources.find(
-                event.id, ResourceOwnerType.SYSTEM, None, "ch_info"
+                event_id, ResourceOwnerType.SYSTEM, None, channel_purpose
             )
-            guide_row = await repo.get(event.id, ResourceOwnerType.SYSTEM, None, "guide_message")
+            guide_row = await repo.get(event_id, ResourceOwnerType.SYSTEM, None, guide_purpose)
             guide_msg_id = guide_row.discord_id if guide_row else None
             guide_row_id = guide_row.id if guide_row else None
-            event_name, event_id = f"{event.name} {event.year}", event.id
-        channel = interaction.guild.get_channel(channel_id) if channel_id else None
+        channel = guild.get_channel(channel_id) if channel_id else None
         if channel is None:
-            await interaction.followup.send(
-                "No #how-it-works channel found. Run `/setup confirm` first.", ephemeral=True
-            )
-            return
+            return None
 
-        embed = _flow_embed(event_name)
         edited = False
         if guide_msg_id:  # try to update the existing guide message in place
             try:
@@ -320,13 +372,45 @@ class SetupCog(commands.Cog):
                 else:
                     row = await repo.add_pending(
                         event_id, ResourceType.MESSAGE, ResourceOwnerType.SYSTEM, None,
-                        "guide_message",
+                        guide_purpose,
                     )
                     await repo.set_created(row.id, msg.id)
-        verb = "Updated" if edited else "Posted"
-        await interaction.followup.send(
-            f"{verb} the guide in {channel.mention}.", ephemeral=True
+        return channel
+
+    @setup_group.command(
+        name="post-guide",
+        description="Post the member guide in #how-it-works and the staff guide in #staff-commands.",
+    )
+    async def post_guide(self, interaction: discord.Interaction) -> None:
+        if not is_head_or_owner(interaction, self.bot.settings):
+            await interaction.response.send_message("E-Sports Head only.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None:
+                await interaction.followup.send("No active event.", ephemeral=True)
+                return
+            event_name, event_id = f"{event.name} {event.year}", event.id
+
+        member_channel = await self._post_or_update_guide(
+            interaction.guild, event_id, "ch_info", "guide_message", _flow_embed(event_name)
         )
+        staff_channel = await self._post_or_update_guide(
+            interaction.guild, event_id, "ch_staff_commands", "staff_guide_message",
+            _staff_guide_embed(event_name),
+        )
+        if member_channel is None and staff_channel is None:
+            await interaction.followup.send(
+                "No guide channels found. Run `/setup confirm` first.", ephemeral=True
+            )
+            return
+        parts = []
+        if member_channel:
+            parts.append(f"member guide in {member_channel.mention}")
+        if staff_channel:
+            parts.append(f"staff guide in {staff_channel.mention}")
+        await interaction.followup.send("Posted the " + " and the ".join(parts) + ".", ephemeral=True)
 
     @setup_group.command(name="backup", description="Save the current server structure to a file.")
     async def backup(self, interaction: discord.Interaction) -> None:
