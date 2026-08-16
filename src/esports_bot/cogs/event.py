@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from ..bot import EsportsBot
 from ..domain.enums import EventState, ResourceOwnerType, ResourceStatus
-from ..infra import db
+from ..infra import dashboard, db
 from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
 from ..infra.resource_repository import SqlResourceRepository
@@ -179,6 +179,7 @@ class EventCog(commands.Cog):
         if new_state == EventState.APPLICATIONS_OPEN:
             await self._announce_applications_open(interaction.guild, event_id, event_name)
             msg += " 📢 Announced that applications are open."
+        await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send(msg, ephemeral=True)
 
     async def _announce_applications_open(

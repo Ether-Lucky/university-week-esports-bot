@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from ..bot import EsportsBot
 from ..domain.enums import ApplicationStatus, ResourceOwnerType
+from ..infra import dashboard
 from ..domain.server_blueprint import slug
 from ..infra import db
 from ..infra.discord_gateway import DiscordResourceGateway
@@ -264,6 +265,7 @@ class ApplicationsCog(commands.Cog):
             colour=discord.Colour.green(),
             decision=f"Approved by {interaction.user.mention}",
         )
+        await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send(f"Approved application #{application_id}.", ephemeral=True)
 
     @application.command(name="reject", description="Reject an application with a reason.")
@@ -286,6 +288,7 @@ class ApplicationsCog(commands.Cog):
                 discord_id = user.discord_user_id
                 review_channel_id = app.review_channel_id
                 review_message_id = app.review_message_id
+                event_id = event.id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
@@ -305,6 +308,7 @@ class ApplicationsCog(commands.Cog):
             colour=discord.Colour.red(),
             decision=f"Rejected by {interaction.user.mention}\n**Reason:** {reason}",
         )
+        await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send(f"Rejected application #{application_id}.", ephemeral=True)
 
     @application.command(name="list", description="List pending applications.")

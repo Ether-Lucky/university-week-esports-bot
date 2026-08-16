@@ -106,6 +106,8 @@ def archetype_for(purpose: str) -> str:
     mapping = {
         "ch_verify": "verify",
         "ch_rules": "rules",
+        "ch_dashboard": "rules",  # live dashboard: visible to everyone, read-only
+        "cat_dashboard": "rules",  # keep the dashboard category visible to everyone
         "ch_info": "rules",  # how-it-works: visible to everyone, read-only
         "ch_apply": "apply",
         "ch_staff_general": "staff_only",

@@ -58,6 +58,10 @@ _LOG_CHANNELS = (
 # Non-game categories + their channels.
 BASE_CATEGORIES: tuple[CategorySpec, ...] = (
     CategorySpec(
+        "cat_dashboard", "📊 EVENT DASHBOARD",
+        (ChannelSpec("ch_dashboard", "dashboard", "text"),),
+    ),
+    CategorySpec(
         "cat_welcome", "WELCOME",
         (
             ChannelSpec("ch_verify", "verify", "text"),

@@ -46,8 +46,8 @@ def test_slug_and_blueprint() -> None:
     assert slug("Mobile Legends") == "mobile-legends"
     roles, cats = full_blueprint(["valorant", "mobile-legends"])
     assert len(roles) == 6
-    # 4 base categories + 2 game categories.
-    assert len(cats) == 6
+    # 5 base categories (incl. dashboard) + 2 game categories.
+    assert len(cats) == 7
     val = game_category("valorant")
     purposes = {c.purpose for c in val.channels}
     assert "game_team_forum:valorant" in purposes

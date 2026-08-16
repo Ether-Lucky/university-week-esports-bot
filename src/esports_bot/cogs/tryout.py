@@ -12,7 +12,7 @@ from discord.ext import commands
 from ..bot import EsportsBot
 from ..domain.enums import ResourceOwnerType
 from ..domain.server_blueprint import slug
-from ..infra import db
+from ..infra import dashboard, db
 from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
 from ..infra.resource_repository import SqlResourceRepository
@@ -85,6 +85,7 @@ class TryoutCog(commands.Cog):
             when = local_dt.strftime("%A, %d %b %Y at %I:%M %p")
             tzname, event_id = event.timezone, event.id
         await self._announce_tryout(interaction.guild, event_id, when, tzname)
+        await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send(
             f"✅ Tryout scheduled for **{when}** ({tzname}) and announced.", ephemeral=True
         )

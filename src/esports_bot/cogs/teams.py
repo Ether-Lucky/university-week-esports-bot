@@ -11,7 +11,7 @@ from discord.ext import commands
 from ..bot import EsportsBot
 from ..domain.enums import ResourceOwnerType, ResourceType, TeamMemberRole, TeamStatus
 from ..domain.server_blueprint import slug
-from ..infra import db
+from ..infra import dashboard, db
 from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
 from ..infra.resource_repository import SqlResourceRepository
@@ -310,6 +310,7 @@ class TeamsCog(commands.Cog):
                 s, interaction.guild, event_id, "teams",
                 f"🆕 Team '{team_name}' created", f"by {interaction.user.mention}",
             )
+        await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send(
             f"✅ Created team **{team_name}** and posted it to the team forum. You're the leader.",
             ephemeral=True,
@@ -352,6 +353,7 @@ class TeamsCog(commands.Cog):
                 await self._teardown_team(interaction.guild, event_id, team_id)
             else:
                 await refresh_team_forum(interaction.guild, event_id, team_id)
+            await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send("You left your team.", ephemeral=True)
 
     @team.command(name="view", description="View a team's roster.")
@@ -402,6 +404,7 @@ class TeamsCog(commands.Cog):
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
         await self._teardown_team(interaction.guild, event_id, team_id)
+        await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send("Team disbanded.", ephemeral=True)
 
     async def _teardown_team(self, guild: discord.Guild, event_id: int, team_id: int) -> None:

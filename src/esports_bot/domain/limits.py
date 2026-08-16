@@ -19,11 +19,11 @@ MAX_CHANNELS_PER_CATEGORY = 50
 # Committee, OIC, FIC, Player, Applicant, Audience.
 BASE_ROLES_CREATED = 6
 
-# Non-game categories: WELCOME/VERIFICATION, APPLICATIONS, STAFF, STAFF LOGS.
-BASE_CATEGORIES = 4
-# Non-game channels: verify, rules, how-it-works, apply, staff-general,
-# application-review, staff-commands, + 9 staff-log channels = 16.
-BASE_CHANNELS = 16
+# Non-game categories: DASHBOARD, WELCOME/VERIFICATION, APPLICATIONS, STAFF, STAFF LOGS.
+BASE_CATEGORIES = 5
+# Non-game channels: dashboard, verify, rules, how-it-works, apply, staff-general,
+# application-review, staff-commands, + 9 staff-log channels = 17.
+BASE_CHANNELS = 17
 
 # Channels created per game category at setup (tryout voice + stage are created later):
 # staff, general, apply-info, team-forum, lft-forum, players, mechanics,

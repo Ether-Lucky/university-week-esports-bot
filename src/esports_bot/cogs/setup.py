@@ -554,6 +554,8 @@ class SetupCog(commands.Cog):
             applied, failed = await setup_service.apply_permissions(event_id, shorts)
 
         self._tokens.pop((interaction.guild_id, interaction.user.id), None)
+        from ..infra import dashboard
+        await dashboard.refresh(interaction.guild, event_id)  # post the dashboard + pin to top
         msg = (
             f"Setup complete. Removed {removed} resources; created ~{report.roles} roles, "
             f"{report.categories} categories, {report.channels} channels; "
