@@ -34,6 +34,7 @@ INITIAL_EXTENSIONS: tuple[str, ...] = (
     "esports_bot.cogs.exports",
     "esports_bot.cogs.dashboard",
     "esports_bot.cogs.announce",
+    "esports_bot.cogs.membership",
 )
 
 
