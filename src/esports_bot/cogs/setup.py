@@ -196,10 +196,20 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
         inline=False,
     )
     embed.add_field(
+        name="📊 Dashboard & announcements",
+        value=(
+            "• `/announce channel:<#channel> message:<text>` — post as the bot "
+            "(optional title & @here/@everyone ping)\n"
+            "• `/dashboard refresh` — rebuild the live dashboard now"
+        ),
+        inline=False,
+    )
+    embed.add_field(
         name="🧹 Moderation & data",
         value=(
             "• `/lft delete` — remove a member's looking-for-team post\n"
             "• `/team disband` — disband a team\n"
+            "• `/member restore` — re-grant a returning member's roles from kept data\n"
             "• `/export` — download event data as CSV\n"
             "• `/system status` · `/system archive`"
         ),
