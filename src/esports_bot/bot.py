@@ -49,6 +49,7 @@ class EsportsBot(commands.Bot):
         self.settings = settings
         self.started_at: datetime = datetime.now(UTC)
         self.tree.on_error = self._on_app_command_error
+        self._synced_guilds: set[int] = set()
 
     async def _on_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -87,21 +88,33 @@ class EsportsBot(commands.Bot):
                 log.exception("Failed to load extension %s", ext)
 
         # Guild-scoped sync = near-instant command propagation (vs. up to 1h global).
-        guild = discord.Object(id=self.settings.guild_id)
+        # The home guild is synced here; every other guild the bot is in is synced in
+        # on_ready, and any guild invited later is synced in on_guild_join.
+        await self._sync_commands_to_guild(self.settings.guild_id)
+
+    async def _sync_commands_to_guild(self, guild_id: int) -> None:
+        """Register all commands in one guild (instant), once per process."""
+        if guild_id in self._synced_guilds:
+            return
+        guild = discord.Object(id=guild_id)
         try:
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            log.info("Slash commands synced to guild %s", self.settings.guild_id)
+            self._synced_guilds.add(guild_id)
+            log.info("Slash commands synced to guild %s", guild_id)
         except discord.Forbidden:
             log.error(
-                "Could not register slash commands (403 Missing Access). The bot was most "
-                "likely invited WITHOUT the 'applications.commands' scope. Re-invite it via "
-                "Developer Portal -> OAuth2 -> URL Generator with BOTH the 'bot' and "
-                "'applications.commands' scopes, then restart. See README step 5. "
-                "The bot keeps running, but its slash commands won't appear until this is fixed."
+                "Could not register slash commands in guild %s (403 Missing Access). The bot "
+                "was likely invited WITHOUT the 'applications.commands' scope. Re-invite it via "
+                "an OAuth2 URL that includes BOTH 'bot' and 'applications.commands'.",
+                guild_id,
             )
         except discord.HTTPException:
-            log.exception("Failed to sync slash commands; the bot will keep running.")
+            log.exception("Failed to sync slash commands to guild %s.", guild_id)
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        """A new server invited the bot — register its commands there immediately."""
+        await self._sync_commands_to_guild(guild.id)
 
     async def on_ready(self) -> None:
         assert self.user is not None
@@ -126,7 +139,12 @@ class EsportsBot(commands.Bot):
                 )
         else:
             log.info("Operating in guild: %s (id=%s)", guild.name, guild.id)
-        log.info("No active event loaded yet (event lifecycle wiring lands in M4).")
+
+        # Register commands in every guild the bot is already in (e.g. servers that
+        # invited it before this ran). Home guild was synced in setup_hook; the set
+        # guard makes this a no-op for anything already done.
+        for g in self.guilds:
+            await self._sync_commands_to_guild(g.id)
 
     async def close(self) -> None:
         await db.dispose()
