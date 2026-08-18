@@ -198,8 +198,8 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
     embed.add_field(
         name="📊 Dashboard & announcements",
         value=(
-            "• `/announce channel:<#channel> message:<text>` — post as the bot "
-            "(optional title & @here/@everyone ping)\n"
+            "• `/announce` — open the embed builder: customize title, description, "
+            "colour, author, images & fields, pick a channel, ping any roles/people, then Send\n"
             "• `/dashboard refresh` — rebuild the live dashboard now"
         ),
         inline=False,
