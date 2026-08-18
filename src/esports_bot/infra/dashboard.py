@@ -15,7 +15,7 @@ import discord
 from sqlalchemy import func, select
 
 from ..domain.enums import ApplicationStatus, ResourceOwnerType, ResourceType, TeamStatus
-from ..models import Application, Team
+from ..models import Application, DashboardSubscription, Team
 from ..repositories.core import EventRepository, GameRepository
 from ..infra import db
 from ..infra.resource_repository import SqlResourceRepository
@@ -106,6 +106,57 @@ async def _move_category_to_top(guild: discord.Guild, channel: discord.abc.Guild
             await channel.edit(position=0)
     except discord.HTTPException as exc:
         log.debug("Could not reposition dashboard: %s", exc)
+
+
+async def _current_embed(session, home_guild_id: int) -> discord.Embed | None:
+    """Build the dashboard embed for the home guild's active event (or None)."""
+    event = await EventRepository(session).get_active(home_guild_id)
+    if event is None:
+        return None
+    games = [
+        (g.id, g.name) for g in await GameRepository(session).list_games_for_event(event.id)
+    ]
+    teams, applicants = await _counts_by_game(session, event.id)
+    return build_embed(
+        f"{event.name} {event.year}", event.state, event.tryout_at, games, teams, applicants
+    )
+
+
+async def refresh_followers(bot) -> None:
+    """Update the mirrored dashboard in every guild that follows the event."""
+    home_guild_id = bot.settings.guild_id
+    try:
+        async with db.session_scope() as s:
+            embed = await _current_embed(s, home_guild_id)
+            if embed is None:
+                return
+            subs = (
+                await s.execute(select(DashboardSubscription))
+            ).scalars().all()
+            rows = [(sub.id, sub.channel_id, sub.message_id) for sub in subs]
+    except Exception:  # noqa: BLE001
+        log.exception("Follower dashboard: could not load subscriptions")
+        return
+
+    for sub_id, channel_id, message_id in rows:
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            continue  # bot left that guild or channel deleted
+        try:
+            if message_id:
+                try:
+                    msg = await channel.fetch_message(message_id)
+                    await msg.edit(embed=embed)
+                    continue
+                except discord.HTTPException:
+                    pass  # message gone — repost below
+            msg = await channel.send(embed=embed)
+            async with db.session_scope() as s:
+                sub = await s.get(DashboardSubscription, sub_id)
+                if sub is not None:
+                    sub.message_id = msg.id
+        except discord.HTTPException as exc:
+            log.debug("Follower dashboard post failed for channel %s: %s", channel_id, exc)
 
 
 async def refresh(guild: discord.Guild, event_id: int | None = None) -> None:

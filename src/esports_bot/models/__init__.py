@@ -9,7 +9,7 @@ from .applications import Application, ApplicationHistory
 from .base import Base
 from .competition import Checkin, Match, MatchResult, Mechanics, Tournament
 from .core import Event, EventGame, Game, StaffAssignment, User
-from .system_tables import AuditLog, DiscordResource, Export
+from .system_tables import AuditLog, DashboardSubscription, DiscordResource, Export
 from .teams import (
     RecruitmentPost,
     RecruitmentRequest,
@@ -36,6 +36,7 @@ __all__ = [
     "Mechanics",
     "Tournament",
     "DiscordResource",
+    "DashboardSubscription",
     "AuditLog",
     "Export",
 ]

@@ -34,7 +34,8 @@ class DashboardCog(commands.Cog):
     @tasks.loop(minutes=1)
     async def refresh_loop(self) -> None:
         for guild in self.bot.guilds:
-            await dashboard.refresh(guild)
+            await dashboard.refresh(guild)  # each guild's own event dashboard (home has one)
+        await dashboard.refresh_followers(self.bot)  # mirrored dashboards in follower guilds
 
     @refresh_loop.before_loop
     async def _before(self) -> None:
@@ -56,6 +57,80 @@ class DashboardCog(commands.Cog):
             event_id = event.id
         await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send("Dashboard refreshed.", ephemeral=True)
+
+    @dashboard_group.command(
+        name="follow",
+        description="Mirror the event's live dashboard into a channel on this server.",
+    )
+    @app_commands.describe(channel="Where to post the mirrored dashboard")
+    async def follow(
+        self, interaction: discord.Interaction, channel: discord.TextChannel
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        perms = channel.permissions_for(interaction.guild.me)
+        if not (perms.view_channel and perms.send_messages):
+            await interaction.followup.send(
+                f"I can't post in {channel.mention} — I need View Channel + Send Messages there.",
+                ephemeral=True,
+            )
+            return
+        from ..models import DashboardSubscription
+
+        async with db.session_scope() as s:
+            from sqlalchemy import select
+
+            sub = (
+                await s.execute(
+                    select(DashboardSubscription).where(
+                        DashboardSubscription.guild_id == interaction.guild_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if sub is None:
+                s.add(
+                    DashboardSubscription(
+                        guild_id=interaction.guild_id, channel_id=channel.id,
+                        created_by=interaction.user.id,
+                    )
+                )
+            else:
+                sub.channel_id = channel.id
+                sub.message_id = None  # force a fresh post in the new channel
+        await dashboard.refresh_followers(self.bot)
+        await interaction.followup.send(
+            f"✅ Now mirroring the event dashboard in {channel.mention}. "
+            "It refreshes about once a minute.",
+            ephemeral=True,
+        )
+
+    @dashboard_group.command(
+        name="unfollow", description="Stop mirroring the event dashboard on this server."
+    )
+    async def unfollow(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        from sqlalchemy import delete, select
+
+        from ..models import DashboardSubscription
+
+        async with db.session_scope() as s:
+            sub = (
+                await s.execute(
+                    select(DashboardSubscription).where(
+                        DashboardSubscription.guild_id == interaction.guild_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if sub is None:
+                await interaction.followup.send(
+                    "This server isn't following the dashboard.", ephemeral=True
+                )
+                return
+            await s.execute(
+                delete(DashboardSubscription).where(
+                    DashboardSubscription.guild_id == interaction.guild_id
+                )
+            )
+        await interaction.followup.send("Stopped mirroring the dashboard here.", ephemeral=True)
 
 
 async def setup(bot: EsportsBot) -> None:

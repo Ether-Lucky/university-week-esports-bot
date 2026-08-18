@@ -22,6 +22,7 @@ EXPECTED_TABLES = {
     "mechanics",
     "tournaments",
     "discord_resources",
+    "dashboard_subscriptions",
     "audit_logs",
     "exports",
 }

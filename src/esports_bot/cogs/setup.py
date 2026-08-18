@@ -200,7 +200,9 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
         value=(
             "• `/announce` — open the embed builder: customize title, description, "
             "colour, author, images & fields, pick a channel, ping any roles/people, then Send\n"
-            "• `/dashboard refresh` — rebuild the live dashboard now"
+            "• `/dashboard refresh` — rebuild the live dashboard now\n"
+            "• `/dashboard follow #channel` / `/dashboard unfollow` — mirror this event's "
+            "dashboard into another server that invited the bot"
         ),
         inline=False,
     )

@@ -86,6 +86,22 @@ class AuditLog(Base):
     __table_args__ = (Index("ix_audit_event_created", "event_id", "created_at"),)
 
 
+class DashboardSubscription(Base, TimestampMixin):
+    """A guild that mirrors the event's live dashboard in one of its channels.
+
+    Lets other servers follow the event: they invite the bot and pick a channel,
+    and the periodic dashboard refresh keeps a message there up to date.
+    """
+
+    __tablename__ = "dashboard_subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guild_id: Mapped[int] = mapped_column(Snowflake, nullable=False, unique=True)
+    channel_id: Mapped[int] = mapped_column(Snowflake, nullable=False)
+    message_id: Mapped[int | None] = mapped_column(Snowflake)
+    created_by: Mapped[int | None] = mapped_column(Snowflake)
+
+
 class Export(Base):
     __tablename__ = "exports"
 
