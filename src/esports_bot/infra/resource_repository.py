@@ -46,6 +46,8 @@ class ResourceRepository(Protocol):
         self, event_id: int, status: ResourceStatus
     ) -> list[ResourceRow]: ...
 
+    async def by_discord_id(self, discord_id: int) -> ResourceRow | None: ...
+
 
 def _to_row(m: DiscordResource) -> ResourceRow:
     return ResourceRow(
@@ -112,3 +114,10 @@ class SqlResourceRepository:
         )
         res = await self._s.execute(stmt)
         return [_to_row(m) for m in res.scalars().all()]
+
+    async def by_discord_id(self, discord_id: int) -> ResourceRow | None:
+        res = await self._s.execute(
+            select(DiscordResource).where(DiscordResource.discord_id == discord_id)
+        )
+        m = res.scalar_one_or_none()
+        return _to_row(m) if m else None

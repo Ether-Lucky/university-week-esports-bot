@@ -207,6 +207,7 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
     embed.add_field(
         name="🧹 Moderation & data",
         value=(
+            "• `/player lookup member:<@member>` — show a member's full DB record\n"
             "• `/lft delete` — remove a member's looking-for-team post\n"
             "• `/team disband` — disband a team\n"
             "• `/member restore` — re-grant a returning member's roles from kept data\n"
