@@ -173,9 +173,15 @@ async def refresh_team_forum(guild: discord.Guild, event_id: int, team_id: int) 
             thread = await guild.fetch_channel(thread_id)
         except discord.HTTPException:
             return
+    # Drop the Join button once the team can't take anyone else.
+    full = (
+        team.status in (TeamStatus.FULL, TeamStatus.DISBANDED)
+        or len(labels) >= team.roster_size
+    )
+    view = None if full else _join_view(team_id)
     try:
         starter = await thread.fetch_message(thread.id)  # forum starter message id == thread id
-        await starter.edit(embed=_team_embed(team, game.name, labels), view=_join_view(team_id))
+        await starter.edit(embed=_team_embed(team, game.name, labels), view=view)
     except discord.HTTPException:
         pass
 

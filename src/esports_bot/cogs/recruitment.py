@@ -21,6 +21,16 @@ from ..services.recruitment_service import RecruitmentService
 from .checks import is_staff
 
 
+async def _disable_message(message: discord.Message | None, note: str) -> None:
+    """Remove the buttons on a request DM once it's been acted on (best-effort)."""
+    if message is None:
+        return
+    try:
+        await message.edit(content=note, view=None)
+    except discord.HTTPException:
+        pass
+
+
 async def _finalize_accept(client, info) -> None:
     """After a request is accepted: grant the team role, refresh the forum, close the
     joining player's LFT post, and DM them."""
@@ -67,9 +77,10 @@ class RejectReasonModal(discord.ui.Modal, title="Reject — reason"):
         label="Reason", style=discord.TextStyle.paragraph, max_length=500, required=True
     )
 
-    def __init__(self, request_id: int) -> None:
+    def __init__(self, request_id: int, source_message: discord.Message | None = None) -> None:
         super().__init__()
         self.request_id = request_id
+        self.source_message = source_message
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
@@ -80,6 +91,7 @@ class RejectReasonModal(discord.ui.Modal, title="Reject — reason"):
                     actor_username=str(interaction.user), reason=self.reason.value,
                 )
             except (ServiceError, ValueError) as exc:
+                await _disable_message(self.source_message, f"⚠️ {exc}")
                 await interaction.followup.send(f"❌ {exc}")
                 return
         requester = interaction.client.get_user(info.requester_discord_id)
@@ -92,6 +104,9 @@ class RejectReasonModal(discord.ui.Modal, title="Reject — reason"):
                 )
             except discord.HTTPException:
                 pass
+        await _disable_message(
+            self.source_message, f"❌ You rejected this request for **{info.team_name}**."
+        )
         await interaction.followup.send("Rejected — the requester was notified with your reason.")
 
 
@@ -120,9 +135,14 @@ class AcceptReqButton(
                     actor_username=str(interaction.user),
                 )
             except (ServiceError, ValueError) as exc:
+                await _disable_message(interaction.message, f"⚠️ {exc}")
                 await interaction.followup.send(f"❌ {exc}")
                 return
         await _finalize_accept(interaction.client, info)
+        await _disable_message(
+            interaction.message,
+            f"✅ You accepted — **{info.joining_name}** is now on **{info.team_name}**.",
+        )
         await interaction.followup.send(
             f"✅ Accepted — **{info.joining_name}** is now on **{info.team_name}**."
         )
@@ -145,7 +165,9 @@ class RejectReqButton(
         return cls(int(match["rid"]))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_modal(RejectReasonModal(self.rid))
+        await interaction.response.send_modal(
+            RejectReasonModal(self.rid, source_message=interaction.message)
+        )
 
 
 async def send_request_dm(client, recipient_discord_id: int, embed, request_id: int) -> bool:
