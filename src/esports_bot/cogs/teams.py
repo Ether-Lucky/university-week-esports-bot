@@ -261,6 +261,25 @@ async def grant_team_role(
         await member.add_roles(role, reason="Team membership")
 
 
+async def revoke_team_role(
+    guild: discord.Guild, event_id: int, team_id: int, discord_user_id: int
+) -> None:
+    async with db.session_scope() as s:
+        resources = DiscordResourceService(
+            DiscordResourceGateway(guild), SqlResourceRepository(s)
+        )
+        role_id = await resources.find(
+            event_id, ResourceOwnerType.TEAM, team_id, f"team_role:{team_id}"
+        )
+    member = guild.get_member(discord_user_id)
+    role = guild.get_role(role_id) if role_id else None
+    if member and role and role in member.roles:
+        try:
+            await member.remove_roles(role, reason="Removed from team")
+        except discord.HTTPException:
+            pass
+
+
 class TeamsCog(commands.Cog):
     def __init__(self, bot: EsportsBot) -> None:
         self.bot = bot
@@ -355,6 +374,48 @@ class TeamsCog(commands.Cog):
                 await refresh_team_forum(interaction.guild, event_id, team_id)
             await dashboard.refresh(interaction.guild, event_id)
         await interaction.followup.send("You left your team.", ephemeral=True)
+
+    @team.command(name="kick", description="Remove a member from your team (leader only).")
+    @app_commands.describe(member="The team member to remove")
+    async def kick(
+        self, interaction: discord.Interaction, member: discord.Member
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None:
+                await interaction.followup.send("No active event.", ephemeral=True)
+                return
+            try:
+                team_id = await TeamService(s).kick_member(
+                    event_id=event.id,
+                    actor_discord_id=interaction.user.id, actor_username=str(interaction.user),
+                    target_discord_id=member.id, target_username=str(member),
+                )
+                event_id = event.id
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+                return
+            from ..infra.logchannel import post_log
+
+            await post_log(
+                s, interaction.guild, event_id, "teams",
+                "👢 Member kicked from a team",
+                f"{member.mention} — by {interaction.user.mention}",
+                colour=discord.Colour.orange(),
+            )
+        await revoke_team_role(interaction.guild, event_id, team_id, member.id)
+        await refresh_team_forum(interaction.guild, event_id, team_id)
+        try:
+            await member.send(
+                "You've been removed from your team. You can join another team with "
+                "`/team join` or post yourself with `/findteam`."
+            )
+        except discord.HTTPException:
+            pass
+        await interaction.followup.send(
+            f"✅ Removed {member.mention} from the team.", ephemeral=True
+        )
 
     @team.command(name="view", description="View a team's roster.")
     async def view(self, interaction: discord.Interaction, team_id: int) -> None:

@@ -110,6 +110,7 @@ def _member_commands_embed(event_name: str) -> discord.Embed:
             "• `/team join team_id:<id>` — ask to join (the leader approves)\n"
             "• `/team view team_id:<id>` — see a team's roster\n"
             "• `/team leave` — leave your current team\n"
+            "• `/team kick member:<@member>` — leaders: remove a member from your team\n"
             "• `/team disband` — leaders: disband your team"
         ),
         inline=False,

@@ -147,6 +147,34 @@ class TeamService:
             entity_type="team", entity_id=team.id,
         )
 
+    async def kick_member(
+        self, *, event_id: int, actor_discord_id: int, actor_username: str,
+        target_discord_id: int, target_username: str,
+    ) -> int:
+        """A team leader removes another member from their team. Returns the team id."""
+        await self._require_formation(event_id, staff=False)
+        actor = await self.users.get_or_create(actor_discord_id, actor_username)
+        leadership = await self.teams.active_membership(event_id, actor.id)
+        if leadership is None or leadership.role_in_team != TeamMemberRole.LEADER:
+            raise ServiceError("Only a team leader can kick members.")
+        team = await self.teams.get(leadership.team_id)
+        target = await self.users.get_or_create(target_discord_id, target_username)
+        if target.id == actor.id:
+            raise ServiceError("You can't kick yourself — use `/team leave` or `/team disband`.")
+        membership = await self.teams.active_membership(event_id, target.id)
+        if membership is None or membership.team_id != team.id:
+            raise ServiceError("That member isn't on your team.")
+        await self._free_member(event_id, membership)
+        await self._s.flush()
+        if team.status == TeamStatus.FULL:
+            team.status = TeamStatus.RECRUITING
+        await self._s.flush()
+        await audit.record(
+            self._s, action="team.kick", event_id=event_id, actor_user_id=actor.id,
+            entity_type="team", entity_id=team.id, after={"kicked_user_id": target.id},
+        )
+        return team.id
+
     async def disband(
         self, *, event_id: int, team_id: int, actor_discord_id: int, actor_username: str,
         reason: str | None = None, staff: bool = False,
