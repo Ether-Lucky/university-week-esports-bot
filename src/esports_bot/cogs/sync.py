@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 
 from ..bot import EsportsBot
 from ..domain.enums import (
+    ApplicationStatus,
     RecruitmentPostStatus,
     ResourceStatus,
     ResourceType,
@@ -26,7 +27,9 @@ from ..infra import dashboard, db
 from ..infra.logchannel import post_log
 from ..infra.resource_repository import SqlResourceRepository
 from ..models import RecruitmentPost, StaffAssignment, User
+from ..repositories.applications import ApplicationRepository
 from ..repositories.core import EventRepository
+from ..services.application_service import ApplicationService
 from ..services.errors import ServiceError
 from ..services.team_service import TeamService
 
@@ -109,12 +112,49 @@ class SyncCog(commands.Cog):
             return
 
         for purpose in purposes:
-            if purpose.startswith("team_role:"):
+            if purpose == "role_applicant":
+                await self._handle_applicant_role_removed(guild, event_id, after)
+            elif purpose.startswith("team_role:"):
                 await self._handle_team_role_removed(guild, event_id, after)
             elif purpose in _STAFF_PURPOSE_TO_ROLE:
                 await self._handle_staff_role_removed(
                     guild, event_id, after, _STAFF_PURPOSE_TO_ROLE[purpose]
                 )
+
+    async def _handle_applicant_role_removed(
+        self, guild: discord.Guild, event_id: int, member: discord.Member
+    ) -> None:
+        async with db.session_scope() as s:
+            user = (
+                await s.execute(select(User).where(User.discord_user_id == member.id))
+            ).scalar_one_or_none()
+            if user is None:
+                return
+            app = await ApplicationRepository(s).active_for_user(event_id, user.id)
+            if app is None:
+                return  # nothing active to withdraw
+            # WITHDRAWN isn't reachable straight from ASSIGNED_TO_TEAM — leave the team
+            # first (that resets them to APPROVED), best-effort.
+            if app.status == ApplicationStatus.ASSIGNED_TO_TEAM:
+                try:
+                    await TeamService(s).leave_team(
+                        event_id=event_id, user_discord_id=member.id, username=str(member),
+                    )
+                except (ServiceError, ValueError):
+                    pass
+            try:
+                await ApplicationService(s).withdraw(
+                    app.id, actor_discord_id=member.id, actor_username=str(member),
+                )
+            except (ServiceError, ValueError):
+                return  # transition not allowed right now — leave the record untouched
+            await post_log(
+                s, guild, event_id, "applications",
+                "🚪 Application withdrawn (Applicant role removed manually)",
+                f"{member.mention}", colour=discord.Colour.orange(),
+            )
+        await dashboard.refresh(guild, event_id)
+        log.info("Applicant role removed from %s -> application withdrawn", member.id)
 
     async def _handle_team_role_removed(
         self, guild: discord.Guild, event_id: int, member: discord.Member
