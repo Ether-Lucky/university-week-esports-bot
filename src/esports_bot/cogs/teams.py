@@ -15,7 +15,7 @@ from ..infra import dashboard, db
 from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
 from ..infra.resource_repository import SqlResourceRepository
-from ..models import Game, User
+from ..models import Game, Team, User
 from ..repositories.core import EventRepository, UserRepository
 from ..repositories.recruitment import RecruitmentRepository
 from ..repositories.teams import TeamRepository
@@ -446,6 +446,37 @@ class TeamsCog(commands.Cog):
             value="\n".join(names) or "—", inline=False,
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @team.command(
+        name="resync-posts",
+        description="Re-sync every team's forum post (roster + Join button) — staff.",
+    )
+    async def resync_posts(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        from sqlalchemy import select
+
+        from .checks import is_staff
+
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            event_id = event.id
+            team_ids = list(
+                (
+                    await s.execute(
+                        select(Team.id).where(
+                            Team.event_id == event_id, Team.status != TeamStatus.DISBANDED
+                        )
+                    )
+                ).scalars()
+            )
+        for tid in team_ids:
+            await refresh_team_forum(interaction.guild, event_id, tid)
+        await interaction.followup.send(
+            f"Re-synced {len(team_ids)} team forum post(s).", ephemeral=True
+        )
 
     @team.command(name="disband", description="Disband a team (leader or staff).")
     async def disband(

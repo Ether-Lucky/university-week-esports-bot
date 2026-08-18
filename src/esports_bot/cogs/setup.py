@@ -213,6 +213,7 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
             "• `/player lookup member:<@member>` — show a member's full DB record\n"
             "• `/lft delete` — remove a member's looking-for-team post\n"
             "• `/team disband` — disband a team\n"
+            "• `/team resync-posts` — refresh all team forum posts (roster + Join button)\n"
             "• `/member restore` — re-grant a returning member's roles from kept data\n"
             "• `/export` — download event data as CSV\n"
             "• `/system status` · `/system archive`"
