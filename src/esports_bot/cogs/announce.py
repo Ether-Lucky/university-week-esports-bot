@@ -24,6 +24,48 @@ log = logging.getLogger(__name__)
 
 _BUILDER_TIMEOUT = 900  # 15 minutes to build before the panel expires
 
+# Placeholders staff can type in any text field; resolved when the embed is sent.
+# (token, human description) — the description doubles as the staff-guide entry.
+PLACEHOLDERS: list[tuple[str, str]] = [
+    ("{user}", "Mention of whoever posts (you)"),
+    ("{user.name}", "Your display name"),
+    ("{user.tag}", "Your username"),
+    ("{user.id}", "Your Discord user ID"),
+    ("{server}", "The server's name"),
+    ("{server.id}", "The server's ID"),
+    ("{members}", "Current member count"),
+    ("{channel}", "Mention of the destination channel"),
+    ("{channel.name}", "Destination channel's name"),
+    ("{date}", "Today's date (shown in each viewer's local time)"),
+    ("{time}", "The current time (shown in each viewer's local time)"),
+]
+
+
+def apply_placeholders(
+    text: str | None, *, guild: discord.Guild, author: discord.abc.User,
+    channel: discord.abc.GuildChannel | None,
+) -> str | None:
+    """Replace {tokens} in a piece of text with live values."""
+    if not text:
+        return text
+    now = int(discord.utils.utcnow().timestamp())
+    mapping = {
+        "{user}": author.mention,
+        "{user.name}": getattr(author, "display_name", str(author)),
+        "{user.tag}": str(author),
+        "{user.id}": str(author.id),
+        "{server}": guild.name,
+        "{server.id}": str(guild.id),
+        "{members}": str(guild.member_count or 0),
+        "{channel}": channel.mention if channel is not None else "",
+        "{channel.name}": getattr(channel, "name", "") if channel is not None else "",
+        "{date}": f"<t:{now}:D>",
+        "{time}": f"<t:{now}:t>",
+    }
+    for token, value in mapping.items():
+        text = text.replace(token, str(value))
+    return text
+
 
 def _parse_colour(text: str | None) -> discord.Colour | None:
     if not text:
@@ -66,18 +108,21 @@ class EmbedDraft:
             (self.title, self.description, self.author_name, self.image_url, self.fields)
         )
 
-    def to_embed(self, *, preview: bool) -> discord.Embed:
+    def to_embed(self, *, preview: bool, subst=None) -> discord.Embed:
+        def S(text: str | None) -> str | None:
+            return subst(text) if (subst and text) else text
+
         embed = discord.Embed(
-            title=self.title or None,
+            title=S(self.title) or None,
             url=self.title_url or None,
-            description=self.description or None,
+            description=S(self.description) or None,
             colour=self.colour if self.colour is not None else discord.Colour.gold(),
         )
         if preview and self.is_empty():
             embed.description = "*(empty — use the buttons below to add content)*"
         if self.author_name:
             embed.set_author(
-                name=self.author_name, url=self.author_url or None,
+                name=S(self.author_name), url=self.author_url or None,
                 icon_url=self.author_icon or None,
             )
         if self.image_url:
@@ -85,11 +130,11 @@ class EmbedDraft:
         if self.thumbnail_url:
             embed.set_thumbnail(url=self.thumbnail_url)
         if self.footer_text or self.footer_icon:
-            embed.set_footer(text=self.footer_text or None, icon_url=self.footer_icon or None)
+            embed.set_footer(text=S(self.footer_text) or None, icon_url=self.footer_icon or None)
         if self.timestamp:
             embed.timestamp = discord.utils.utcnow()
         for name, value, inline in self.fields:
-            embed.add_field(name=name, value=value, inline=inline)
+            embed.add_field(name=S(name), value=S(value), inline=inline)
         return embed
 
 
@@ -255,12 +300,28 @@ class EmbedBuilderView(discord.ui.View):
         pings += [f"<@&{r.id}>" for r in self.mention_roles]
         pings += [f"<@{u.id}>" for u in self.mention_users]
         ping_line = " ".join(pings) if pings else "none"
-        return f"**Preview** · destination: {dest} · pings: {ping_line}"
+        return (
+            f"**Preview** · destination: {dest} · pings: {ping_line}\n"
+            "-# Tip: type placeholders like `{user.id}`, `{server}`, `{members}` — "
+            "see the placeholder guide in #staff-commands."
+        )
+
+    def _subst(self, interaction: discord.Interaction):
+        channel = None
+        if self.target_channel_id:
+            channel = interaction.guild.get_channel(self.target_channel_id)
+        channel = channel or interaction.channel
+        return lambda t: apply_placeholders(
+            t, guild=interaction.guild, author=interaction.user, channel=channel
+        )
+
+    def preview_embed(self, interaction: discord.Interaction) -> discord.Embed:
+        return self.draft.to_embed(preview=True, subst=self._subst(interaction))
 
     async def refresh(self, interaction: discord.Interaction) -> None:
         await interaction.response.edit_message(
             content=self._panel_text(),
-            embed=self.draft.to_embed(preview=True),
+            embed=self.preview_embed(interaction),
             view=self,
         )
 
@@ -388,9 +449,12 @@ class EmbedBuilderView(discord.ui.View):
             roles=list(self.mention_roles) or False,
             users=list(self.mention_users) or False,
         )
+        subst = lambda t: apply_placeholders(  # noqa: E731
+            t, guild=interaction.guild, author=interaction.user, channel=channel
+        )
         try:
             sent = await channel.send(
-                content=content, embed=self.draft.to_embed(preview=False),
+                content=content, embed=self.draft.to_embed(preview=False, subst=subst),
                 allowed_mentions=allowed,
             )
         except discord.HTTPException as exc:
@@ -442,7 +506,7 @@ class AnnounceCog(commands.Cog):
             return
         view = EmbedBuilderView(interaction.user.id)
         await interaction.response.send_message(
-            content=view._panel_text(), embed=view.draft.to_embed(preview=True),
+            content=view._panel_text(), embed=view.preview_embed(interaction),
             view=view, ephemeral=True,
         )
         view.message = await interaction.original_response()

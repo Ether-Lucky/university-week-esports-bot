@@ -219,6 +219,27 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
     return embed
 
 
+def _placeholders_guide_embed(event_name: str) -> discord.Embed:
+    """Reference for the /announce embed-builder placeholders — posted in #staff-commands."""
+    from .announce import PLACEHOLDERS
+
+    embed = discord.Embed(
+        title=f"🔤 {event_name} — Announcement Placeholders",
+        colour=discord.Colour.dark_teal(),
+        description=(
+            "Type these in any text field of the **/announce** embed builder "
+            "(title, description, fields, footer, author). Each one is replaced with a "
+            "live value when the announcement is sent."
+        ),
+    )
+    lines = [f"`{token}` — {desc}" for token, desc in PLACEHOLDERS]
+    embed.add_field(name="Available placeholders", value="\n".join(lines)[:1024], inline=False)
+    embed.set_footer(
+        text="Example: “Posted by {user} on {date}” → your mention and today’s date."
+    )
+    return embed
+
+
 def snapshot_guild(guild: discord.Guild) -> GuildSnapshot:
     roles = tuple(
         RoleInfo(id=r.id, name=r.name, managed=r.managed, is_default=r.is_default())
@@ -478,6 +499,11 @@ class SetupCog(commands.Cog):
         staff_channel = await self._post_or_update_guide(
             interaction.guild, event_id, "ch_staff_commands", "staff_guide_message",
             _staff_guide_embed(event_name),
+        )
+        # Second staff message: the /announce placeholder reference.
+        await self._post_or_update_guide(
+            interaction.guild, event_id, "ch_staff_commands", "placeholder_guide_message",
+            _placeholders_guide_embed(event_name),
         )
         if member_channel is None and staff_channel is None:
             await interaction.followup.send(
