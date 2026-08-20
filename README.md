@@ -2,7 +2,9 @@
 
 A reusable, configuration-driven Discord bot that runs a university's annual
 University Week **E-Sports tryout/tournament**: verification, applications, teams,
-recruitment, tryout logistics, matches, results, champions, exports, and cleanup.
+recruitment, tryout logistics, matches, results, champions, exports, and cleanup —
+plus a **live dashboard** (also mirrorable to other servers) and an **embed-builder
+announcement** command.
 
 - **Only the bot runs locally** (on a Windows PC). The **database is hosted on Supabase**.
 - **The database is the source of truth**; Discord channels/roles are a rebuildable projection.
@@ -333,28 +335,37 @@ You're set up. Move the event forward with `/event advance` when you're ready to
 The event moves through states with `/event advance` (or `/event rollback` to step back). What's
 allowed depends on the current state.
 
-| Phase | What happens | Key commands |
-|---|---|---|
-| **DRAFT** | Event created, nothing built | `/event configure add-game`, `/setup preview/confirm` |
-| **APPLICATIONS_OPEN** | Members verify (external bot) then **Apply as Player**; staff review | Apply button, `/application list`, `/application approve id:`, `/application reject id: reason:` |
-| **TEAM_FORMATION** | Approved applicants form teams & recruit | `/team create`, `/team join team_id:`, `/team view`, `/recruit player member:`, `/recruit accept request_id:` |
-| **REGISTRATION_LOCKED** | Rosters frozen; finalize mechanics & bracket links | `/mechanics create`, `/mechanics publish`, `/tournament set` |
-| **PRE_TRYOUT** | Team check-in + final validation | `/tryout checkin`, `/tryout status` |
-| **TRYOUT_ACTIVE** | Matches run; results recorded | `/tryout start`, `/match battle-ended match_id: winner_team_id:`, `/match correct` |
-| **RESULTS** | Champions crowned, data exported | `/tryout crown game: team_id:`, `/tryout end`, `/export all` |
-| **CLEANUP** | Temporary resources deleted, history kept | `/system cleanup confirm:True` |
-| **ARCHIVED** | Read-only history | `/system archive`, later `/export …` |
+The event has **10 phases**. `/event advance` steps forward one at a time; `/event rollback`
+steps back one (from any phase except DRAFT and ARCHIVED). The current phase always shows at the
+top of **#dashboard** and via `/event status`.
+
+| # | Phase | What happens | Key commands |
+|---|---|---|---|
+| 1 | **DRAFT** | Event created; add its games | `/event configure add-game`, `/event configure remove-game` |
+| 2 | **SETUP** | Build the Discord structure (roles, channels, dashboard) | `/setup preview` → `/setup confirm`, `/setup grant-audience`, `/setup post-guide` |
+| 3 | **APPLICATIONS_OPEN** | Members verify (external bot) then **Apply for Tryouts**; staff review. Teams can already start forming | Apply button, `/application list`, `/application approve`, `/application reject` |
+| 4 | **TEAM_FORMATION** | Approved applicants form teams & recruit | `/team create`, `/team join`, `/team kick`, `/team lock-creation`, `/findteam`, `/recruit player`, `/switch-game` |
+| 5 | **REGISTRATION_LOCKED** | Rosters frozen; finalize mechanics & bracket links | `/mechanics create`, `/mechanics publish`, `/tournament set` |
+| 6 | **PRE_TRYOUT** | Team check-in + final validation, then start | `/tryout checkin`, `/tryout checkin-all`, `/tryout status`, `/tryout start` |
+| 7 | **TRYOUT_ACTIVE** | Matches run; results recorded | `/match battle-ended`, `/match correct` |
+| 8 | **RESULTS** | Champions crowned, data exported | `/tryout crown`, `/tryout end`, `/export all` |
+| 9 | **CLEANUP** | Temporary resources deleted, history kept | `/system cleanup confirm:True` |
+| 10 | **ARCHIVED** | Read-only history | `/system archive`, later `/export …` |
 
 A typical run:
 ```
-/event advance                     (DRAFT -> APPLICATIONS_OPEN, after setup)
+/event configure add-game …        (while in DRAFT)
+/event advance                     (DRAFT -> SETUP)
+/setup preview → /setup confirm     (build the server; posts #dashboard + guides)
+/event advance                     (-> APPLICATIONS_OPEN, auto-announces in #apply)
    … applicants apply, staff approve/reject …
 /event advance                     (-> TEAM_FORMATION)
-   … teams form, recruit …
+   … teams form, recruit; /team lock-creation closed:true to stop new teams …
 /event advance                     (-> REGISTRATION_LOCKED)
 /mechanics create … ; /mechanics publish … ; /tournament set …
 /event advance                     (-> PRE_TRYOUT)
 /tryout status                     (must show READY)
+/tryout checkin-all                (check everyone in at once, optional)
 /tryout start                      (-> TRYOUT_ACTIVE, creates match voice channels)
    … /match battle-ended for each match …
 /tryout crown game:Valorant team_id:12
@@ -363,6 +374,10 @@ A typical run:
 /system cleanup confirm:True       (-> CLEANUP)
 /system archive                    (-> ARCHIVED)
 ```
+
+> **Team size & the reserve slot:** a team is tryout-eligible once it has at least
+> **`roster_size − 1`** members — the roster size includes one reserve, so a team that's one short
+> (e.g. 5 of 6) can still play, and the reserve can still join later.
 
 `/tryout status` must show **READY** (mechanics published, Challonge set, ≥2 complete teams, and a
 tryout date) before `/tryout start` will run.
@@ -376,8 +391,10 @@ tryout date) before `/tryout start` will run.
 - `/setup grant-audience` — give the **Audience** role to all current human members at once
   (handy on an existing server so people don't each have to verify). Re-runnable; new joiners
   still verify via the external bot. Head only.
-- `/setup post-guide` — post the "how it works" flow guide into **#how-it-works** (created by
-  setup) so the audience knows how to proceed. Head only, re-runnable.
+- `/setup post-guide` — post the in-Discord guides: the **how-it-works flow** and a **member
+  command reference** in **#how-it-works**, plus a **staff command guide** and the **announcement
+  placeholder reference** in **#staff-commands**. Re-running edits the existing messages in place.
+  Head only.
 
 > When you advance the event to **APPLICATIONS_OPEN**, the bot automatically posts a "📢 Applications
 > are now OPEN" announcement in **#apply** and pings **@Audience**.
@@ -397,6 +414,12 @@ tryout date) before `/tryout start` will run.
 - `/staff add member: role:` · `/staff remove member:` · `/staff list`.
 - `/system status` — health & counts. `/system health` — reconcile resources.
 - `/system cleanup confirm:True` · `/system archive` — Head, end-of-event.
+- `/player lookup member:@user` — show a member's full database record: application (game,
+  status, email, Facebook, year/section), team membership, staff roles, LFT post, and current
+  Discord roles. Staff only.
+- `/member restore [member:@user]` — re-grant the roles a returning member had earned
+  (Applicant + game role, team role, Player, staff roles) from their kept data. With no member,
+  sweeps everyone currently in the server. Also runs automatically when someone rejoins.
 
 **Applications** (staff review)
 - Apply button (members) · `/application list` · `/application approve id:` · `/application reject id: reason:` · `/application post-button`.
@@ -406,22 +429,51 @@ tryout date) before `/tryout start` will run.
 > **Per-game channels:** setup creates one role per game (e.g. `@Valorant`), granted to that game's approved applicants. Each game's chat/forums let **only that game's participants post** — others can read but not send. So applicants can't message in games they didn't apply for.
 
 **Teams**
-- `/team create name: game: [logo:]` · `/team join team_id:` · `/team leave` · `/team view team_id:` · `/team disband team_id: [reason:]`.
+- `/team create name: [logo:]` · `/team join team_id:` · `/team leave` · `/team view team_id:` · `/team disband team_id: [reason:]`.
+- `/team kick member:@user` — a team **leader** removes a member from their team (frees the slot,
+  strips their team role, DMs them). The kicked member becomes a free applicant again.
+- `/team lock-creation closed:true|false` — staff stop/allow **new** team creation; members can
+  still join and complete existing teams while it's closed.
+- `/team resync-posts` — staff refresh every team's forum post (roster + Join button); the Join
+  button drops automatically once a team is full and returns when a slot frees.
 
 **Recruitment**
 - `/findteam ign:<> role:<> [note:<>]` — an applicant without a team posts themselves on their game's **looking-for-team forum**, with a **Recruit** button leaders can press. One active post each.
 - `/lft cancel` — remove your own LFT post (you can `/findteam` again afterward). `/lft delete member:@user` — staff removes someone's LFT post.
 - `/recruit player member:` (leader) · `/recruit accept request_id:` · `/recruit decline request_id:`.
 - Teams also auto-post to the **team forum** with a **Join Team** button when created.
+- Accept/Reject DM buttons retire themselves once a decision is made, and the Join button drops
+  when a team is full.
+
+> **Discord ↔ database sync:** the database is the source of truth, but the bot also reflects
+> *manual* Discord changes back for the safe cases — deleting a channel/role marks it MISSING,
+> deleting an LFT post closes it, and removing a member's **team**, **staff**, or **Applicant**
+> role by hand updates the database to match (leaves the team / drops the staff assignment /
+> withdraws the application). Nothing is ever deleted when a member leaves — their data is kept and
+> re-attached if they rejoin.
 
 **Mechanics & tournament** (staff)
-- `/mechanics create game: title: description:` · `/mechanics publish game:` · `/tournament set game: url:`.
+- `/mechanics create game:` — opens an **interactive embed builder** (like `/announce`): edit the
+  title, description, colour, author, images, and fields with a live preview, then **Save**. It's
+  stored unpublished; `/mechanics publish game:` posts it to the game's mechanics channel.
+- `/tournament set game: url:` — set the Challonge bracket link.
+- On all three, `game:` is an **autocomplete choice** drawn from the event's games (no free text).
 - See [`docs/embed-authoring.md`](docs/embed-authoring.md) for writing clean mechanics.
 
 **Tryout & matches** (staff)
-- `/tryout schedule date:YYYY-MM-DD time:HH:MM` (sets tryout date/time in the event timezone; works during any pre-tryout phase) · `/tryout status` · `/tryout checkin` (players) · `/tryout start` · `/tryout crown game: team_id:` · `/tryout end`.
-- `/setup post-guide` re-run **updates the existing #how-it-works message in place** (edit it, then run again to resend).
+- `/tryout schedule date:YYYY-MM-DD time:HH:MM` (sets tryout date/time in the event timezone; works during any pre-tryout phase) · `/tryout status` · `/tryout checkin` (players) · `/tryout checkin-all` (staff: check everyone in at once) · `/tryout start` · `/tryout crown game: team_id:` · `/tryout end`.
 - `/match battle-ended match_id: winner_team_id: [screenshot:] [notes:]` · `/match correct match_id: winner_team_id: reason:`.
+
+**Announcements & dashboard** (staff)
+- `/announce` — opens an **embed builder**: customize title, description, colour, author, images,
+  and fields with a live preview, pick a destination channel, optionally ping any roles/people or
+  `@here`/`@everyone`, then **Send**. Text fields accept placeholders like `{user.id}`, `{server}`,
+  `{members}`, `{date}` — a reference of them is posted in **#staff-commands** by `/setup post-guide`.
+- `/dashboard refresh` — rebuild the live **#dashboard** now (it also auto-updates on changes and
+  every minute). The dashboard shows per-game team & applicant counts, the tryout date, and the
+  current phase.
+- `/dashboard follow #channel` / `/dashboard unfollow` — **other servers** that invite the bot can
+  mirror this event's dashboard into a channel of their choice (aggregate counts only, kept updated).
 
 **Exports** (staff)
 - `/export kind:applicants|teams|members|matches|checkins|logs|all`.
@@ -437,7 +489,7 @@ tryout date) before `/tryout start` will run.
 |---|---|
 | `Configuration error: missing or invalid settings` on start | A required value in `.env` is missing/blank. Check `DISCORD_TOKEN`, `GUILD_ID`, `DATABASE_URL`. |
 | Bot starts but `Configured GUILD_ID … not found` | The bot isn't in that server, or `GUILD_ID` is wrong. Re-invite (step 5) / re-copy the server ID. |
-| Slash commands don't appear | Wait a few seconds and refresh Discord; the bot syncs commands to your guild on startup. Ensure it's actually running. |
+| Slash commands don't appear | Wait a few seconds and refresh Discord. The bot registers commands in **every server it's in** on startup, and in any new server the moment it's invited. Ensure it's actually running, and that it was invited with the `applications.commands` scope. |
 | `403 Forbidden (50001 Missing Access)` on startup (command sync) | The bot was invited without the `applications.commands` scope. Re-invite it (Developer Portal → OAuth2 → URL Generator) with **both** `bot` and `applications.commands` scopes, authorize it to your server, then restart. |
 | `/setup` says Community is required | Enable Community (step 6), then retry. |
 | Bot "can't create/assign roles" or 403 errors | Drag the **bot's role above** the roles it manages (step 5.8) and confirm its permissions. |
@@ -445,7 +497,7 @@ tryout date) before `/tryout start` will run.
 | Database "Unavailable" in `/system status` | Check internet, and that `DATABASE_URL` host/password are correct (URL-encode special chars). Supabase project must be running. |
 | `alembic upgrade head` fails to connect | Verify `MIGRATION_DATABASE_URL` (note `+psycopg` and `?sslmode=require`) and the password encoding. |
 | `No module named esports_bot` | The venv isn't active — you're on system Python. Activate it (PowerShell `.\.venv\Scripts\Activate.ps1`, cmd `.venv\Scripts\activate.bat`) then run, or use `.venv\Scripts\python.exe -m esports_bot`. Run from the project root. |
-| A channel/role got deleted by hand | Run `/system health`; re-run `/setup confirm` to rebuild the base structure. |
+| A channel/role got deleted by hand | The bot auto-marks it MISSING; run `/system health` to see what's gone, then re-run `/setup confirm` to rebuild the base structure. |
 | `/setup confirm` had issues on a Community server | Community-required channels (Rules, Community Updates) can't be deleted by anyone — the bot now preserves and skips them automatically. Just re-run `/setup preview` → `/setup confirm`. |
 | Applicant didn't get a DM result | They likely have DMs closed; the result is still recorded and shown in the staff log channel. |
 | Assigned the verified role but no Audience role appears | `VERIFIED_SOURCE_ROLE_ID` in `.env` must equal that role's **ID** (name is irrelevant). Copy the role ID, put it in `.env`, **restart the bot**. Also needs an active event and `/setup confirm` done. |
