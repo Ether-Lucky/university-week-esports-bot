@@ -45,6 +45,10 @@ class Event(Base, TimestampMixin):
     recruitment_deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     tryout_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cleanup_policy: Mapped[dict | None] = mapped_column(JSONB)
+    # When true, no new teams can be created; existing teams can still fill up.
+    team_creation_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     __table_args__ = (
         # At most one active (non-archived) event per guild.

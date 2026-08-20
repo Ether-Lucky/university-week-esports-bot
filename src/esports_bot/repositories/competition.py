@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.enums import CheckinState, TeamStatus
-from ..models import Checkin, Match, MatchResult, Mechanics, Team, Tournament
+from ..models import Checkin, Match, MatchResult, Mechanics, Team, TeamMember, Tournament
 
 
 class MechanicsRepository:
@@ -98,12 +98,24 @@ class MatchRepository:
 
 
 async def complete_teams(session: AsyncSession, event_id: int, game_id: int) -> list[Team]:
-    """Teams for a game that are FULL/REGISTERED/CHECKED_IN (tryout-eligible)."""
+    """Teams for a game eligible to compete.
+
+    A team qualifies with at least ``roster_size - 1`` active members — the roster
+    size includes one reserve slot, so a team that's one short can still play (e.g.
+    5 of 6). Disbanded teams are excluded.
+    """
+    member_count = (
+        select(func.count())
+        .select_from(TeamMember)
+        .where(TeamMember.team_id == Team.id, TeamMember.active.is_(True))
+        .scalar_subquery()
+    )
     res = await session.execute(
         select(Team).where(
             Team.event_id == event_id,
             Team.game_id == game_id,
-            Team.status.in_([TeamStatus.FULL, TeamStatus.REGISTERED, TeamStatus.CHECKED_IN]),
+            Team.status != TeamStatus.DISBANDED,
+            member_count >= func.greatest(Team.roster_size - 1, 1),
         )
     )
     return list(res.scalars().all())

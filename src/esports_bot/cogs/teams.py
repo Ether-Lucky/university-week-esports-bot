@@ -478,6 +478,28 @@ class TeamsCog(commands.Cog):
             f"Re-synced {len(team_ids)} team forum post(s).", ephemeral=True
         )
 
+    @team.command(
+        name="lock-creation",
+        description="Open or close new-team creation; existing teams still fill up (staff).",
+    )
+    @app_commands.describe(closed="True to stop new teams being created, False to allow again")
+    async def lock_creation(self, interaction: discord.Interaction, closed: bool) -> None:
+        await interaction.response.defer(ephemeral=True)
+        from .checks import is_staff
+
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            event.team_creation_locked = closed
+        await interaction.followup.send(
+            "🔒 Team creation is now **closed** — members can still join and complete "
+            "existing teams." if closed
+            else "🔓 Team creation is now **open** again.",
+            ephemeral=True,
+        )
+
     @team.command(name="disband", description="Disband a team (leader or staff).")
     async def disband(
         self, interaction: discord.Interaction, team_id: int, reason: str | None = None

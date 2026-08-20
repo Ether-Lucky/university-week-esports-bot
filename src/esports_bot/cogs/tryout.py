@@ -139,6 +139,24 @@ class TryoutCog(commands.Cog):
                 return
         await interaction.followup.send("✅ Checked in!", ephemeral=True)
 
+    @tryout.command(
+        name="checkin-all", description="Check in every team member at once (staff)."
+    )
+    async def checkin_all(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            count = await CheckinService(s).check_in_all(
+                event_id=event.id, actor_discord_id=interaction.user.id,
+                actor_username=str(interaction.user),
+            )
+        await interaction.followup.send(
+            f"✅ Checked in {count} team member(s).", ephemeral=True
+        )
+
     @tryout.command(name="start", description="Start the tryout (Head/Committee).")
     async def start(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)

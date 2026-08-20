@@ -191,6 +191,7 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
         name="🏆 Tryouts & results",
         value=(
             "• `/tryout schedule` · `/tryout status` · `/tryout start`\n"
+            "• `/tryout checkin-all` — check every team member in at once\n"
             "• `/match battle-ended` · `/match correct reason:<why>` — record results\n"
             "• `/tryout crown` · `/tryout end` — crown champions & finalize"
         ),
@@ -213,6 +214,8 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
             "• `/player lookup member:<@member>` — show a member's full DB record\n"
             "• `/lft delete` — remove a member's looking-for-team post\n"
             "• `/team disband` — disband a team\n"
+            "• `/team lock-creation closed:<true/false>` — stop/allow new teams "
+            "(existing teams still fill up)\n"
             "• `/team resync-posts` — refresh all team forum posts (roster + Join button)\n"
             "• `/member restore` — re-grant a returning member's roles from kept data\n"
             "• `/export` — download event data as CSV\n"

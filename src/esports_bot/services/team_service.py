@@ -40,7 +40,11 @@ class TeamService:
         leader_discord_id: int, leader_username: str, staff: bool = False,
     ) -> Team:
         """The team's game is taken automatically from the leader's application."""
-        await self._require_formation(event_id, staff=staff)
+        event = await self._require_formation(event_id, staff=staff)
+        if event.team_creation_locked and not staff:
+            raise ServiceError(
+                "Team creation is closed. You can still join or complete existing teams."
+            )
         leader = await self.users.get_or_create(leader_discord_id, leader_username)
         application = await self.teams.approved_application(event_id, leader.id)
         if application is None:

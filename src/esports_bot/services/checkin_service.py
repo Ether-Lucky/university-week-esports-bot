@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..domain.enums import CheckinState
 from ..infra import audit
-from ..models import Checkin
+from ..models import Checkin, Team, TeamMember
 from ..repositories.competition import CheckinRepository
 from ..repositories.core import UserRepository
 from ..repositories.teams import TeamRepository
@@ -48,6 +49,40 @@ class CheckinService:
             entity_type="checkin", entity_id=existing.id, after={"state": state.value},
         )
         return existing
+
+    async def check_in_all(
+        self, *, event_id: int, actor_discord_id: int, actor_username: str
+    ) -> int:
+        """Check in every active team member for the event. Returns how many are checked in."""
+        actor = await self.users.get_or_create(actor_discord_id, actor_username)
+        rows = (
+            await self._s.execute(
+                select(TeamMember, Team.game_id)
+                .join(Team, TeamMember.team_id == Team.id)
+                .where(TeamMember.event_id == event_id, TeamMember.active.is_(True))
+            )
+        ).all()
+        count = 0
+        for member, game_id in rows:
+            existing = await self.repo.get(member.team_id, member.user_id)
+            if existing is None:
+                self.repo.add(
+                    Checkin(
+                        event_id=event_id, game_id=game_id, team_id=member.team_id,
+                        user_id=member.user_id, state=CheckinState.CHECKED_IN,
+                        actor_user_id=actor.id,
+                    )
+                )
+            else:
+                existing.state = CheckinState.CHECKED_IN
+                existing.actor_user_id = actor.id
+            count += 1
+        await self._s.flush()
+        await audit.record(
+            self._s, action="checkin.all", event_id=event_id, actor_user_id=actor.id,
+            entity_type="event", entity_id=event_id, after={"checked_in": count},
+        )
+        return count
 
     async def team_readiness(self, team_id: int) -> tuple[int, int]:
         team = await self.teams.get(team_id)
