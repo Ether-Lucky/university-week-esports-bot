@@ -262,6 +262,37 @@ class MechanicsCog(commands.Cog):
             await ch.send(embed=_mechanics_embed(title, body))
         await interaction.followup.send("Mechanics published.", ephemeral=True)
 
+    @mechanics.command(
+        name="preview", description="Preview the saved mechanics before publishing (private)."
+    )
+    @app_commands.autocomplete(game=game_autocomplete)
+    async def preview(self, interaction: discord.Interaction, game: str) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event, g, eg = await _resolve_event_game(s, interaction.guild_id, game)
+            if eg is None:
+                await interaction.followup.send("Unknown game / no event.", ephemeral=True)
+                return
+            if not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            mech = await MechanicsService(s).latest(eg.id)
+            if mech is None:
+                await interaction.followup.send(
+                    f"No mechanics saved for **{g.name}** yet. Create them with "
+                    "`/mechanics create`.",
+                    ephemeral=True,
+                )
+                return
+            title, body, version, published = mech.title, mech.body, mech.version, mech.published
+        status = "✅ published" if published else "📝 unpublished (draft)"
+        await interaction.followup.send(
+            f"Preview of **{g.name}** mechanics — v{version}, {status}. "
+            "This is only visible to you; use `/mechanics publish` to post it.",
+            embed=_mechanics_embed(title, body),
+            ephemeral=True,
+        )
+
     @tournament.command(name="set", description="Set the Challonge URL for a game.")
     @app_commands.autocomplete(game=game_autocomplete)
     async def set_challonge(self, interaction: discord.Interaction, game: str, url: str) -> None:

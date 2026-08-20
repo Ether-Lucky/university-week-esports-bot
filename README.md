@@ -456,6 +456,8 @@ tryout date) before `/tryout start` will run.
 - `/mechanics create game:` — opens an **interactive embed builder** (like `/announce`): edit the
   title, description, colour, author, images, and fields with a live preview, then **Save**. It's
   stored unpublished; `/mechanics publish game:` posts it to the game's mechanics channel.
+- `/mechanics preview game:` — privately (ephemeral) render the saved draft so you can check it
+  before publishing; shows its version and whether it's already published.
 - `/tournament set game: url:` — set the Challonge bracket link.
 - On all three, `game:` is an **autocomplete choice** drawn from the event's games (no free text).
 - See [`docs/embed-authoring.md`](docs/embed-authoring.md) for writing clean mechanics.

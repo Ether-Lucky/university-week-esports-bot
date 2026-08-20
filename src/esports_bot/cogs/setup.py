@@ -182,7 +182,9 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
     embed.add_field(
         name="🎯 Mechanics & tournament",
         value=(
-            "• `/mechanics create` · `/mechanics publish` — per-game rules\n"
+            "• `/mechanics create` — build a game's rules (embed builder)\n"
+            "• `/mechanics preview` — privately check the saved draft before posting\n"
+            "• `/mechanics publish` — post the mechanics to the game's channel\n"
             "• `/tournament set` — set the Challonge bracket URL"
         ),
         inline=False,

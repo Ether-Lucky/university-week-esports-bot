@@ -57,6 +57,10 @@ class MechanicsService:
     async def has_published(self, event_game_id: int) -> bool:
         return await self.repo.current_published(event_game_id) is not None
 
+    async def latest(self, event_game_id: int) -> Mechanics | None:
+        """The most recent mechanics for a game (published or not), for previewing."""
+        return await self.repo.latest(event_game_id)
+
 
 class TournamentService:
     def __init__(self, session: AsyncSession) -> None:
