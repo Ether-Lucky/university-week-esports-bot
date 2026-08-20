@@ -293,7 +293,9 @@ class SetupCog(commands.Cog):
     setup_group = app_commands.Group(
         name="setup",
         description="Set up the Discord server for the event.",
-        default_permissions=discord.Permissions(administrator=True),
+        # Manage Server (not Administrator) so the E-Sports Head role can see these
+        # once granted that permission; the runtime check still restricts to Head/owner.
+        default_permissions=discord.Permissions(manage_guild=True),
         guild_only=True,
     )
 
