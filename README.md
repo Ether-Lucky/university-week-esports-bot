@@ -469,8 +469,9 @@ directly with `/tryout appoint game: member:`. At least one game must be ready t
 - `/match battle-ended game: winner: [screenshot:] [notes:]` — pick the game, then the winning team from that game's teams with a pending match; the bot finds the match automatically (no match ID needed). Recording a result **announces and
 records the winner but does not eliminate anyone** — a battle may be one game of a best-of-N series,
 and the bracket/advancement lives in Challonge. `/match correct match_id: winner_team_id: reason:`
-edits a recorded winner; `/match retract game: team: reason:` fully undoes a result — reopens the
-match so it can be replayed (use this for disputes).
+edits a recorded winner; `/match retract game: match: reason:` fully undoes a result — you pick the completed match from a
+list and it reopens for a replay (use this for disputes); `/match undo-correction game: match:
+reason:` steps back just the last correction, restoring the winner it had before it.
 
 **Announcements & dashboard** (staff)
 - `/announce` — opens an **embed builder**: customize title, description, colour, author, images,

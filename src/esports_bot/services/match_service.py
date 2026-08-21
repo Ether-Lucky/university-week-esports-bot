@@ -105,6 +105,51 @@ class MatchService:
         )
         return match
 
+    async def undo_correction(
+        self, *, event_id: int, match_id: int, reason: str,
+        actor_discord_id: int, actor_username: str,
+    ) -> int:
+        """Step back the last correction: restore the winner it had before it.
+
+        Returns the restored winner team id.
+        """
+        if not reason or not reason.strip():
+            raise ServiceError("A reason is required.")
+        from sqlalchemy import select
+
+        from ..models import AuditLog
+
+        match = await self.matches.get(match_id)
+        result = await self.matches.result_for(match_id)
+        if match is None or result is None:
+            raise ServiceError("That match has no recorded result.")
+        row = (
+            await self._s.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "match.correct",
+                    AuditLog.entity_type == "match",
+                    AuditLog.entity_id == match_id,
+                ).order_by(AuditLog.created_at.desc()).limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is None or not row.before or row.before.get("winner") is None:
+            raise ServiceError("This match has no correction to undo.")
+        previous = int(row.before["winner"])
+        if previous not in (match.team_a_id, match.team_b_id):
+            raise ServiceError("The previous winner is no longer valid for this match.")
+        actor = await self.users.get_or_create(actor_discord_id, actor_username)
+        current = result.winner_team_id
+        result.winner_team_id = previous
+        result.correction_reason = f"Undo: {reason.strip()}"
+        match.winner_team_id = previous
+        await self._s.flush()
+        await audit.record(
+            self._s, action="match.undo_correction", event_id=event_id, actor_user_id=actor.id,
+            entity_type="match", entity_id=match_id,
+            before={"winner": current}, after={"winner": previous, "reason": reason.strip()},
+        )
+        return previous
+
     async def correct(
         self, *, event_id: int, match_id: int, winner_team_id: int, reason: str,
         actor_discord_id: int, actor_username: str,
