@@ -182,15 +182,25 @@ class TryoutCog(commands.Cog):
         )
 
     async def _provision_voice(self, guild, event_id, plans, games) -> None:
+        from ..domain.permissions import STAFF_KEYS
+
         async with db.session_scope() as s:
             resources = DiscordResourceService(
                 DiscordResourceGateway(guild), SqlResourceRepository(s)
             )
+            # roster size per game (the join cap) and the staff roles (which bypass it).
+            roster_by_game = {
+                eg.game_id: eg.roster_size
+                for eg in await GameRepository(s).list_for_event(event_id)
+            }
+            role_map = await resources.role_map(event_id)
+            staff_role_ids = [role_map[k] for k in STAFF_KEYS if k in role_map]
             for plan in plans:
                 s_slug = slug(games.get(plan.game_id, "game"))
                 cat_id = await resources.find(
                     event_id, ResourceOwnerType.GAME, None, f"cat_game:{s_slug}"
                 )
+                limit = roster_by_game.get(plan.game_id) or 0
                 for idx, (a, b) in enumerate(plan.pairs, start=1):
                     vc_id = await resources.ensure_voice_channel(
                         event_id, ResourceOwnerType.GAME, None,
@@ -205,6 +215,12 @@ class TryoutCog(commands.Cog):
                     )
                     vc = guild.get_channel(vc_id)
                     if vc:
+                        # Cap the channel to the game's roster size (0 = unlimited). Staff with
+                        # Move Members below can still join a full channel, bypassing the cap.
+                        try:
+                            await vc.edit(user_limit=limit if 0 < limit <= 99 else 0)
+                        except discord.HTTPException:
+                            pass
                         # Everyone can watch (see the channel + read/click existing reactions)
                         # but can't join voice, post in the text chat, or add new reactions.
                         await vc.set_permissions(
@@ -218,6 +234,15 @@ class TryoutCog(commands.Cog):
                                 await vc.set_permissions(
                                     role, view_channel=True, connect=True,
                                     send_messages=True, add_reactions=True,
+                                )
+                        # Staff bypass: full access + Move Members lets them exceed the cap.
+                        for sid in staff_role_ids:
+                            srole = guild.get_role(sid)
+                            if srole:
+                                await vc.set_permissions(
+                                    srole, view_channel=True, connect=True,
+                                    send_messages=True, add_reactions=True,
+                                    move_members=True,
                                 )
 
     @tryout.command(name="crown", description="Crown a champion team for a game (staff).")
