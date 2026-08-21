@@ -205,13 +205,20 @@ class TryoutCog(commands.Cog):
                     )
                     vc = guild.get_channel(vc_id)
                     if vc:
+                        # Everyone can watch (see the channel + read/click existing reactions)
+                        # but can't join voice, post in the text chat, or add new reactions.
                         await vc.set_permissions(
-                            guild.default_role, view_channel=False, connect=False
+                            guild.default_role, view_channel=True, connect=False,
+                            send_messages=False, add_reactions=False,
                         )
+                        # The two competing teams get full access: join, speak, post, react.
                         for rid in (role_a, role_b):
                             role = guild.get_role(rid) if rid else None
                             if role:
-                                await vc.set_permissions(role, view_channel=True, connect=True)
+                                await vc.set_permissions(
+                                    role, view_channel=True, connect=True,
+                                    send_messages=True, add_reactions=True,
+                                )
 
     @tryout.command(name="crown", description="Crown a champion team for a game (staff).")
     async def crown(self, interaction: discord.Interaction, game: str, team_id: int) -> None:
