@@ -466,7 +466,7 @@ directly with `/tryout appoint game: member:`. At least one game must be ready t
 
 **Tryout & matches** (staff)
 - `/tryout schedule date:YYYY-MM-DD time:HH:MM` (sets tryout date/time in the event timezone; works during any pre-tryout phase) · `/tryout status` · `/tryout checkin` (players) · `/tryout checkin-all` (staff: check everyone in at once) · `/tryout start` · `/tryout crown game: team_id:` · `/tryout end`.
-- `/match battle-ended match_id: winner_team_id: [screenshot:] [notes:]` · `/match correct match_id: winner_team_id: reason:`.
+- `/match battle-ended game: winner: [screenshot:] [notes:]` — pick the game, then the winning team from that game's teams with a pending match; the bot finds the match automatically (no match ID needed). `/match correct match_id: winner_team_id: reason:`.
 
 **Announcements & dashboard** (staff)
 - `/announce` — opens an **embed builder**: customize title, description, colour, author, images,

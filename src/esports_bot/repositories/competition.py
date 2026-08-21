@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..domain.enums import CheckinState, TeamStatus
+from ..domain.enums import CheckinState, MatchStatus, TeamStatus
 from ..models import Checkin, Match, MatchResult, Mechanics, Team, TeamMember, Tournament
 
 
@@ -93,6 +93,24 @@ class MatchRepository:
     async def result_for(self, match_id: int) -> MatchResult | None:
         res = await self._s.execute(
             select(MatchResult).where(MatchResult.match_id == match_id)
+        )
+        return res.scalar_one_or_none()
+
+    async def scheduled_for_game(self, event_id: int, game_id: int) -> list[Match]:
+        res = await self._s.execute(
+            select(Match).where(
+                Match.event_id == event_id, Match.game_id == game_id,
+                Match.status == MatchStatus.SCHEDULED,
+            )
+        )
+        return list(res.scalars().all())
+
+    async def scheduled_for_team(self, event_id: int, team_id: int) -> Match | None:
+        res = await self._s.execute(
+            select(Match).where(
+                Match.event_id == event_id, Match.status == MatchStatus.SCHEDULED,
+                or_(Match.team_a_id == team_id, Match.team_b_id == team_id),
+            ).limit(1)
         )
         return res.scalar_one_or_none()
 
