@@ -175,15 +175,18 @@ class TryoutCog(commands.Cog):
                 return
             games = {g.id: g.name for g in await GameRepository(s).list_games_for_event(event.id)}
             event_id = event.id
-        await self._provision_voice(interaction.guild, event_id, plans, games)
-        total = sum(p.channel_count for p in plans)
+        total = await self._provision_voice(interaction.guild, event_id, plans, games)
         await interaction.followup.send(
-            f"🚀 Tryout started. Created {total} match voice channels.", ephemeral=True
+            f"🚀 Tryout started. Created {total} team voice channels (one per team).",
+            ephemeral=True,
         )
 
-    async def _provision_voice(self, guild, event_id, plans, games) -> None:
+    async def _provision_voice(self, guild, event_id, plans, games) -> int:
+        """One voice channel per competing team, supervised by staff. Returns the count."""
         from ..domain.permissions import STAFF_KEYS
+        from ..models import Team
 
+        created = 0
         async with db.session_scope() as s:
             resources = DiscordResourceService(
                 DiscordResourceGateway(guild), SqlResourceRepository(s)
@@ -201,49 +204,51 @@ class TryoutCog(commands.Cog):
                     event_id, ResourceOwnerType.GAME, None, f"cat_game:{s_slug}"
                 )
                 limit = roster_by_game.get(plan.game_id) or 0
-                for idx, (a, b) in enumerate(plan.pairs, start=1):
+                # Every team that got paired (plus a bye team) needs its own channel.
+                team_ids = {t for pair in plan.pairs for t in pair}
+                if plan.bye:
+                    team_ids.add(plan.bye)
+                for tid in sorted(team_ids):
+                    team = await s.get(Team, tid)
+                    tname = slug(team.name) if team else f"team-{tid}"
                     vc_id = await resources.ensure_voice_channel(
-                        event_id, ResourceOwnerType.GAME, None,
-                        f"tryout_voice:{plan.game_id}:{idx}",
-                        f"{s_slug}-tryout-{idx}", category_id=cat_id,
+                        event_id, ResourceOwnerType.TEAM, tid,
+                        f"tryout_voice:{tid}",
+                        f"{s_slug}-{tname}"[:100], category_id=cat_id,
                     )
-                    role_a = await resources.find(
-                        event_id, ResourceOwnerType.TEAM, a, f"team_role:{a}"
-                    )
-                    role_b = await resources.find(
-                        event_id, ResourceOwnerType.TEAM, b, f"team_role:{b}"
+                    team_role_id = await resources.find(
+                        event_id, ResourceOwnerType.TEAM, tid, f"team_role:{tid}"
                     )
                     vc = guild.get_channel(vc_id)
-                    if vc:
-                        # Cap the channel to the game's roster size (0 = unlimited). Staff with
-                        # Move Members below can still join a full channel, bypassing the cap.
-                        try:
-                            await vc.edit(user_limit=limit if 0 < limit <= 99 else 0)
-                        except discord.HTTPException:
-                            pass
-                        # Everyone can watch (see the channel + read/click existing reactions)
-                        # but can't join voice, post in the text chat, or add new reactions.
+                    if vc is None:
+                        continue
+                    # Cap to the game's roster size (0 = unlimited); staff bypass via Move Members.
+                    try:
+                        await vc.edit(user_limit=limit if 0 < limit <= 99 else 0)
+                    except discord.HTTPException:
+                        pass
+                    # Everyone can watch but can't join, post, or add new reactions.
+                    await vc.set_permissions(
+                        guild.default_role, view_channel=True, connect=False,
+                        send_messages=False, add_reactions=False,
+                    )
+                    # This team gets full access.
+                    trole = guild.get_role(team_role_id) if team_role_id else None
+                    if trole:
                         await vc.set_permissions(
-                            guild.default_role, view_channel=True, connect=False,
-                            send_messages=False, add_reactions=False,
+                            trole, view_channel=True, connect=True,
+                            send_messages=True, add_reactions=True,
                         )
-                        # The two competing teams get full access: join, speak, post, react.
-                        for rid in (role_a, role_b):
-                            role = guild.get_role(rid) if rid else None
-                            if role:
-                                await vc.set_permissions(
-                                    role, view_channel=True, connect=True,
-                                    send_messages=True, add_reactions=True,
-                                )
-                        # Staff bypass: full access + Move Members lets them exceed the cap.
-                        for sid in staff_role_ids:
-                            srole = guild.get_role(sid)
-                            if srole:
-                                await vc.set_permissions(
-                                    srole, view_channel=True, connect=True,
-                                    send_messages=True, add_reactions=True,
-                                    move_members=True,
-                                )
+                    # Staff (who supervise) get full access + Move Members to exceed the cap.
+                    for sid in staff_role_ids:
+                        srole = guild.get_role(sid)
+                        if srole:
+                            await vc.set_permissions(
+                                srole, view_channel=True, connect=True,
+                                send_messages=True, add_reactions=True, move_members=True,
+                            )
+                    created += 1
+        return created
 
     @tryout.command(name="crown", description="Crown a champion team for a game (staff).")
     async def crown(self, interaction: discord.Interaction, game: str, team_id: int) -> None:
