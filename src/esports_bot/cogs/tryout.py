@@ -195,12 +195,21 @@ class TryoutCog(commands.Cog):
             interaction.guild, event_id, plans, games
         )
         hidden = await tryout_env.set_focus(interaction.guild, event_id, hide=True)
-        await interaction.followup.send(
-            f"🚀 Tryout started. Created {total} team voice channels in per-game tryout "
-            f"categories, and hid {hidden} other channels so everyone focuses on the tryout. "
-            "They return on `/tryout end`.",
-            ephemeral=True,
+        started_ids = {p.game_id for p in plans}
+        started = [n for gid, n in games.items() if gid in started_ids]
+        skipped = [n for gid, n in games.items() if gid not in started_ids]
+        msg = (
+            f"🚀 Tryout started for: **{', '.join(started)}**.\n"
+            f"Created {total} team voice channels in per-game tryout categories, and hid "
+            f"{hidden} other channels so everyone focuses on the tryout (they return on "
+            "`/tryout end`)."
         )
+        if skipped:
+            msg += (
+                f"\n\n⏭️ Skipped (not ready — no tryout): **{', '.join(skipped)}**. "
+                "Appoint their players with `/tryout appoint`."
+            )
+        await interaction.followup.send(msg, ephemeral=True)
 
 
     @tryout.command(name="crown", description="Crown a champion team for a game (staff).")

@@ -379,8 +379,10 @@ A typical run:
 > **`roster_size − 1`** members — the roster size includes one reserve, so a team that's one short
 > (e.g. 5 of 6) can still play, and the reserve can still join later.
 
-`/tryout status` must show **READY** (mechanics published, Challonge set, ≥2 complete teams, and a
-tryout date) before `/tryout start` will run.
+A game is **READY** once it has published mechanics, a Challonge link (`/tournament set`), a tryout
+date, and ≥2 complete teams. `/tryout start` runs the tryout for **every ready game and skips the
+rest** — so games that didn't field enough teams are simply left out, and you appoint their players
+directly with `/tryout appoint game: member:`. At least one game must be ready to start.
 
 ---
 

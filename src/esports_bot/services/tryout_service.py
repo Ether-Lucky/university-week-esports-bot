@@ -77,12 +77,20 @@ class TryoutService:
         event = await self.events.get(event_id)
         if event is None or event.state != EventState.PRE_TRYOUT:
             raise ServiceError("Tryout can only start from PRE_TRYOUT.")
-        _, overall = await self.validate(event_id)
-        if not overall:
-            raise ServiceError("Not all games are ready. Run /tryout status.")
+        # Start only the games that are ready; skip the rest (staff appoint their
+        # players manually). At least one game must be ready.
+        readiness, _overall = await self.validate(event_id)
+        ready_ids = {r.game_id for r in readiness if r.ready}
+        if not ready_ids:
+            raise ServiceError(
+                "No game is ready for a tryout yet — each needs published mechanics, a Challonge "
+                "link, a tryout date, and at least 2 complete teams. Run /tryout status."
+            )
 
         plans: list[GamePlan] = []
         for eg in await self.games.list_for_event(event_id):
+            if eg.game_id not in ready_ids:
+                continue
             teams = await complete_teams(self._s, event_id, eg.game_id)
             team_ids = [t.id for t in teams]
             pairs, bye = pair_teams(team_ids)
