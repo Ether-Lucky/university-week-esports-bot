@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..bot import EsportsBot
-from ..domain.enums import ResourceOwnerType
+from ..domain.enums import EventState, ResourceOwnerType, TeamStatus
 from ..domain.server_blueprint import slug
 from ..infra import dashboard, db, tryout_env
 from ..infra.discord_gateway import DiscordResourceGateway
@@ -191,8 +191,14 @@ class TryoutCog(commands.Cog):
                 return
             games = {g.id: g.name for g in await GameRepository(s).list_games_for_event(event.id)}
             event_id = event.id
+        teams_by_game: dict[int, set[int]] = {}
+        for p in plans:
+            tids = {t for pair in p.pairs for t in pair}
+            if p.bye:
+                tids.add(p.bye)
+            teams_by_game[p.game_id] = tids
         total = await tryout_env.provision_tryout_channels(
-            interaction.guild, event_id, plans, games
+            interaction.guild, event_id, teams_by_game, games
         )
         hidden = await tryout_env.set_focus(interaction.guild, event_id, hide=True)
         started_ids = {p.game_id for p in plans}
@@ -301,6 +307,51 @@ class TryoutCog(commands.Cog):
                 f"{member.mention} already has those roles (or the roles are missing).",
                 ephemeral=True,
             )
+
+    @tryout.command(
+        name="resync-channels",
+        description="Re-apply tryout channel permissions & focus mode without restarting (staff).",
+    )
+    async def resync_channels(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        from sqlalchemy import select
+
+        from ..models import Team
+
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            if event.state != EventState.TRYOUT_ACTIVE:
+                await interaction.followup.send(
+                    "The tryout isn't running — this only applies while in TRYOUT_ACTIVE.",
+                    ephemeral=True,
+                )
+                return
+            rows = (
+                await s.execute(
+                    select(Team.id, Team.game_id).where(
+                        Team.event_id == event.id,
+                        Team.status.in_(
+                            [TeamStatus.COMPETING, TeamStatus.CHAMPION, TeamStatus.ELIMINATED]
+                        ),
+                    )
+                )
+            ).all()
+            games = {g.id: g.name for g in await GameRepository(s).list_games_for_event(event.id)}
+            event_id = event.id
+        teams_by_game: dict[int, set[int]] = {}
+        for tid, gid in rows:
+            teams_by_game.setdefault(gid, set()).add(tid)
+        total = await tryout_env.provision_tryout_channels(
+            interaction.guild, event_id, teams_by_game, games
+        )
+        hidden = await tryout_env.set_focus(interaction.guild, event_id, hide=True)
+        await interaction.followup.send(
+            f"🔄 Re-applied permissions on {total} team channels and re-hid {hidden} channels.",
+            ephemeral=True,
+        )
 
     @tryout.command(name="end", description="Finalize the tryout -> RESULTS (staff).")
     async def end(self, interaction: discord.Interaction) -> None:

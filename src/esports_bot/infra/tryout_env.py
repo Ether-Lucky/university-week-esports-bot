@@ -26,12 +26,13 @@ log = logging.getLogger(__name__)
 _STAFF_PURPOSES = ("role_head", "role_committee", "role_oic", "role_fic")
 _PARTICIPANT_BASE = ("role_audience", "role_applicant", "role_player")
 
-# Participant-visible channels hidden during the tryout (mechanics & battle-results
-# stay visible; staff channels participants can't see anyway).
+# Participant-visible channels hidden during the tryout. Mechanics, battle-results,
+# and the tournament (Challonge/bracket) channel stay visible — teams need those;
+# staff channels participants can't see anyway.
 _HIDE_SYSTEM = ("ch_verify", "ch_rules", "ch_info", "ch_apply")
 _HIDE_GAME = (
     "game_general", "game_apply_info", "game_team_forum",
-    "game_lft_forum", "game_players", "game_tournament",
+    "game_lft_forum", "game_players",
 )
 
 
@@ -42,10 +43,12 @@ async def _set(channel, target, **flags) -> None:
         log.debug("set_permissions failed on %s: %s", getattr(channel, "id", "?"), exc)
 
 
-async def provision_tryout_channels(guild, event_id: int, plans, games) -> int:
+async def provision_tryout_channels(guild, event_id: int, teams_by_game, games) -> int:
     """Build each game's tryout category (shared text + per-team text/voice).
 
-    Returns the number of team voice channels created.
+    ``teams_by_game`` maps game_id -> iterable of team ids. Idempotent: existing
+    channels are reused and their permissions re-applied. Returns the number of
+    team voice channels provisioned.
     """
     created = 0
     async with db.session_scope() as s:
@@ -59,10 +62,13 @@ async def provision_tryout_channels(guild, event_id: int, plans, games) -> int:
         role_map = await resources.role_map(event_id)
         staff_ids = [role_map[k] for k in _STAFF_PURPOSES if k in role_map]
 
-        for plan in plans:
-            gname = games.get(plan.game_id, "game")
+        for game_id, team_ids in teams_by_game.items():
+            team_ids = set(team_ids)
+            if not team_ids:
+                continue
+            gname = games.get(game_id, "game")
             g_slug = slug(gname)
-            limit = roster_by_game.get(plan.game_id) or 0
+            limit = roster_by_game.get(game_id) or 0
             game_role = guild.get_role(role_map.get(f"game_role:{g_slug}", 0))
 
             cat_id = await resources.ensure_category(
@@ -90,9 +96,6 @@ async def provision_tryout_channels(guild, event_id: int, plans, games) -> int:
                         await _set(shared, sr, view_channel=True,
                                    send_messages=True, add_reactions=True)
 
-            team_ids = {t for pair in plan.pairs for t in pair}
-            if plan.bye:
-                team_ids.add(plan.bye)
             for tid in sorted(team_ids):
                 team = await s.get(Team, tid)
                 tname = slug(team.name) if team else f"team-{tid}"
@@ -123,11 +126,17 @@ async def provision_tryout_channels(guild, event_id: int, plans, games) -> int:
 
 
 async def _apply_team_perms(guild, channel, team_role, staff_ids, *, voice: bool) -> None:
-    """Team + staff get full access; everyone else watches (view-only)."""
-    everyone = {"view_channel": True, "send_messages": False, "add_reactions": False}
+    """Team + staff get full access.
+
+    The team's **voice** channel is spectator-visible (everyone sees it, can't join/
+    talk/react). The team's **text** channel is private — hidden from everyone but
+    the team and staff.
+    """
     if voice:
-        everyone["connect"] = False
-    await _set(channel, guild.default_role, **everyone)
+        await _set(channel, guild.default_role, view_channel=True, connect=False,
+                   send_messages=False, add_reactions=False)
+    else:
+        await _set(channel, guild.default_role, view_channel=False)
     if team_role:
         team = {"view_channel": True, "send_messages": True, "add_reactions": True}
         if voice:
