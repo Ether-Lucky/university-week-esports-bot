@@ -46,11 +46,8 @@ class MatchService:
 
         match.winner_team_id = winner_team_id
         match.status = MatchStatus.COMPLETED
-        loser_id = match.team_b_id if winner_team_id == match.team_a_id else match.team_a_id
-        if loser_id is not None:
-            loser = await self.teams.get(loser_id)
-            if loser and loser.status == TeamStatus.COMPETING:
-                loser.status = TeamStatus.ELIMINATED
+        # NB: recording a result does NOT eliminate the loser — a "battle" may be one
+        # game of a best-of-N series, and the bracket/advancement lives in Challonge.
 
         result = await self.matches.result_for(match_id)
         if result is None:
