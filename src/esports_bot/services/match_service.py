@@ -70,6 +70,44 @@ class MatchService:
         )
         return result
 
+    async def retract(
+        self, *, event_id: int, match_id: int, reason: str,
+        actor_discord_id: int, actor_username: str,
+    ) -> Match:
+        """Undo a recorded result: reopen the match and un-eliminate the loser."""
+        if not reason or not reason.strip():
+            raise ServiceError("A reason is required to retract a result.")
+        match = await self.matches.get(match_id)
+        if match is None:
+            raise ServiceError("Match not found.")
+        result = await self.matches.result_for(match_id)
+        if match.status != MatchStatus.COMPLETED and result is None:
+            raise ServiceError("That match has no recorded result to retract.")
+        actor = await self.users.get_or_create(actor_discord_id, actor_username)
+        before_winner = match.winner_team_id
+
+        # Bring the eliminated loser back into the tournament.
+        if before_winner is not None:
+            loser_id = (
+                match.team_b_id if before_winner == match.team_a_id else match.team_a_id
+            )
+            if loser_id is not None:
+                loser = await self.teams.get(loser_id)
+                if loser and loser.status == TeamStatus.ELIMINATED:
+                    loser.status = TeamStatus.COMPETING
+
+        match.winner_team_id = None
+        match.status = MatchStatus.SCHEDULED
+        if result is not None:
+            await self._s.delete(result)
+        await self._s.flush()
+        await audit.record(
+            self._s, action="match.retract", event_id=event_id, actor_user_id=actor.id,
+            entity_type="match", entity_id=match_id,
+            before={"winner": before_winner}, after={"reason": reason.strip()},
+        )
+        return match
+
     async def correct(
         self, *, event_id: int, match_id: int, winner_team_id: int, reason: str,
         actor_discord_id: int, actor_username: str,

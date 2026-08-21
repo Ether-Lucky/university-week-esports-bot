@@ -64,6 +64,34 @@ async def _winner_autocomplete(
     return choices[:25]
 
 
+async def _completed_team_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    """Teams that took part in a *completed* match in the chosen game (to retract)."""
+    game_name = getattr(interaction.namespace, "game", None)
+    if not game_name:
+        return []
+    cur = current.lower()
+    async with db.session_scope() as s:
+        event = await EventRepository(s).get_active(interaction.guild_id)
+        if event is None:
+            return []
+        games = await GameRepository(s).list_games_for_event(event.id)
+        g = next((x for x in games if x.name.lower() == game_name.lower()), None)
+        if g is None:
+            return []
+        matches = await MatchRepository(s).completed_for_game(event.id, g.id)
+        team_ids = {m.team_a_id for m in matches} | {
+            m.team_b_id for m in matches if m.team_b_id
+        }
+        choices = []
+        for tid in team_ids:
+            team = await s.get(Team, tid)
+            if team and cur in team.name.lower():
+                choices.append(app_commands.Choice(name=team.name, value=str(tid)))
+    return choices[:25]
+
+
 class MatchesCog(commands.Cog):
     def __init__(self, bot: EsportsBot) -> None:
         self.bot = bot
@@ -136,6 +164,66 @@ class MatchesCog(commands.Cog):
         await interaction.followup.send(
             f"✅ Result recorded for match #{match_id} — "
             f"**{winner_team.name if winner_team else winner_team_id}** won.",
+            ephemeral=True,
+        )
+
+    @match.command(
+        name="retract",
+        description="Undo a recorded result — reopens the match & un-eliminates the loser (staff).",
+    )
+    @app_commands.describe(
+        game="The game", team="A team from the completed match to reopen", reason="Why (required)",
+    )
+    @app_commands.autocomplete(game=_game_autocomplete, team=_completed_team_autocomplete)
+    async def retract(
+        self, interaction: discord.Interaction, game: str, team: str, reason: str
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            team_id = int(team)
+        except ValueError:
+            await interaction.followup.send("Pick a team from the list.", ephemeral=True)
+            return
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            match = await MatchRepository(s).completed_for_team(event.id, team_id)
+            if match is None:
+                await interaction.followup.send(
+                    "No completed match found for that team.", ephemeral=True
+                )
+                return
+            match_id = match.id
+            try:
+                await MatchService(s).retract(
+                    event_id=event.id, match_id=match_id, reason=reason,
+                    actor_discord_id=interaction.user.id, actor_username=str(interaction.user),
+                )
+            except (ServiceError, ValueError) as exc:
+                await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+                return
+            g = await s.get(Game, match.game_id)
+            game_name = g.name if g else "game"
+            event_id = event.id
+            resources = DiscordResourceService(
+                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
+            )
+            channel_id = await resources.find(
+                event_id, ResourceOwnerType.GAME, None, f"game_battle_results:{slug(game_name)}"
+            )
+        if channel_id and (ch := interaction.guild.get_channel(channel_id)):
+            await ch.send(
+                embed=discord.Embed(
+                    title=f"↩️ Match #{match_id} result retracted",
+                    colour=discord.Colour.orange(),
+                    description=f"The result was voided — replay pending.\n**Reason:** {reason}",
+                )
+            )
+        await interaction.followup.send(
+            f"↩️ Retracted match #{match_id}. It's reopened — record it again with "
+            "`/match battle-ended`.",
             ephemeral=True,
         )
 

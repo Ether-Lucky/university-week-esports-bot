@@ -114,6 +114,24 @@ class MatchRepository:
         )
         return res.scalar_one_or_none()
 
+    async def completed_for_game(self, event_id: int, game_id: int) -> list[Match]:
+        res = await self._s.execute(
+            select(Match).where(
+                Match.event_id == event_id, Match.game_id == game_id,
+                Match.status == MatchStatus.COMPLETED,
+            )
+        )
+        return list(res.scalars().all())
+
+    async def completed_for_team(self, event_id: int, team_id: int) -> Match | None:
+        res = await self._s.execute(
+            select(Match).where(
+                Match.event_id == event_id, Match.status == MatchStatus.COMPLETED,
+                or_(Match.team_a_id == team_id, Match.team_b_id == team_id),
+            ).order_by(Match.id.desc()).limit(1)
+        )
+        return res.scalar_one_or_none()
+
 
 async def complete_teams(session: AsyncSession, event_id: int, game_id: int) -> list[Team]:
     """Teams for a game eligible to compete.

@@ -197,7 +197,8 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
             "• `/tryout checkin-all` — check every team member in at once\n"
             "• `/tryout appoint game: member:` — grant Player for a game with no teams\n"
             "• `/tryout resync-channels` — re-apply tryout channel perms & focus (no restart)\n"
-            "• `/match battle-ended` · `/match correct reason:<why>` — record results\n"
+            "• `/match battle-ended` — record a result · `/match correct reason:<why>` — edit it\n"
+            "• `/match retract game: team: reason:` — undo a result & reopen the match\n"
             "• `/tryout crown` · `/tryout end` — crown champions & finalize (restores channels)"
         ),
         inline=False,
