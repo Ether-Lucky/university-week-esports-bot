@@ -95,6 +95,44 @@ async def _completed_match_autocomplete(
     return choices[:25]
 
 
+def _result_embed(match_id, winner_name, screenshot=None, notes=None) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"Match #{match_id} result", colour=discord.Colour.green(),
+        description=f"Winner: **{winner_name}**",
+    )
+    if screenshot:
+        embed.set_image(url=screenshot)
+    if notes:
+        embed.add_field(name="Notes", value=str(notes)[:1024], inline=False)
+    return embed
+
+
+async def _edit_announcement(guild, channel_id, message_id, embed) -> None:
+    if not channel_id or not message_id:
+        return
+    ch = guild.get_channel(channel_id)
+    if ch is None:
+        return
+    try:
+        msg = await ch.fetch_message(message_id)
+        await msg.edit(embed=embed)
+    except discord.HTTPException:
+        pass
+
+
+async def _delete_announcement(guild, channel_id, message_id) -> None:
+    if not channel_id or not message_id:
+        return
+    ch = guild.get_channel(channel_id)
+    if ch is None:
+        return
+    try:
+        msg = await ch.fetch_message(message_id)
+        await msg.delete()
+    except discord.HTTPException:
+        pass
+
+
 class MatchesCog(commands.Cog):
     def __init__(self, bot: EsportsBot) -> None:
         self.bot = bot
@@ -154,19 +192,16 @@ class MatchesCog(commands.Cog):
             channel_id = await resources.find(
                 event_id, ResourceOwnerType.GAME, None, f"game_battle_results:{slug(game_name)}"
             )
+        winner_name = winner_team.name if winner_team else winner_team_id
         if channel_id and (ch := interaction.guild.get_channel(channel_id)):
-            embed = discord.Embed(
-                title=f"Match #{match_id} result", colour=discord.Colour.green(),
-                description=f"Winner: **{winner_team.name if winner_team else winner_team_id}**",
-            )
-            if screenshot:
-                embed.set_image(url=screenshot)
-            if notes:
-                embed.add_field(name="Notes", value=notes[:1024], inline=False)
-            await ch.send(embed=embed)
+            sent = await ch.send(embed=_result_embed(match_id, winner_name, screenshot, notes))
+            async with db.session_scope() as s:
+                res = await MatchRepository(s).result_for(match_id)
+                if res is not None:
+                    res.announce_channel_id = ch.id
+                    res.announce_message_id = sent.id
         await interaction.followup.send(
-            f"✅ Result recorded for match #{match_id} — "
-            f"**{winner_team.name if winner_team else winner_team_id}** won.",
+            f"✅ Result recorded for match #{match_id} — **{winner_name}** won.",
             ephemeral=True,
         )
 
@@ -197,6 +232,10 @@ class MatchesCog(commands.Cog):
             if m is not None:
                 g = await s.get(Game, m.game_id)
                 game_name = g.name if g else "game"
+            # Capture the announcement message before the result row is deleted.
+            res = await MatchRepository(s).result_for(match_id)
+            ann_channel = res.announce_channel_id if res else None
+            ann_message = res.announce_message_id if res else None
             try:
                 await MatchService(s).retract(
                     event_id=event.id, match_id=match_id, reason=reason,
@@ -212,6 +251,8 @@ class MatchesCog(commands.Cog):
             channel_id = await resources.find(
                 event_id, ResourceOwnerType.GAME, None, f"game_battle_results:{slug(game_name)}"
             )
+        # Delete the original result announcement, then post a retraction notice.
+        await _delete_announcement(interaction.guild, ann_channel, ann_message)
         if channel_id and (ch := interaction.guild.get_channel(channel_id)):
             await ch.send(
                 embed=discord.Embed(
@@ -257,9 +298,19 @@ class MatchesCog(commands.Cog):
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
             team = await s.get(Team, restored)
+            res = await MatchRepository(s).result_for(match_id)
+            ann_channel = res.announce_channel_id if res else None
+            ann_message = res.announce_message_id if res else None
+            screenshot = res.screenshot_url if res else None
+            notes = res.notes if res else None
+        team_name = team.name if team else restored
+        await _edit_announcement(
+            interaction.guild, ann_channel, ann_message,
+            _result_embed(match_id, team_name, screenshot, notes),
+        )
         await interaction.followup.send(
             f"↩️ Undid the last correction on match #{match_id} — winner restored to "
-            f"**{team.name if team else restored}**.",
+            f"**{team_name}**.",
             ephemeral=True,
         )
 
@@ -282,7 +333,20 @@ class MatchesCog(commands.Cog):
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
-        await interaction.followup.send(f"Corrected match #{match_id}.", ephemeral=True)
+            res = await MatchRepository(s).result_for(match_id)
+            ann_channel = res.announce_channel_id if res else None
+            ann_message = res.announce_message_id if res else None
+            screenshot = res.screenshot_url if res else None
+            notes = res.notes if res else None
+            winner_team = await s.get(Team, winner_team_id)
+        winner_name = winner_team.name if winner_team else winner_team_id
+        await _edit_announcement(
+            interaction.guild, ann_channel, ann_message,
+            _result_embed(match_id, winner_name, screenshot, notes),
+        )
+        await interaction.followup.send(
+            f"Corrected match #{match_id} — winner is now **{winner_name}**.", ephemeral=True
+        )
 
 
 async def setup(bot: EsportsBot) -> None:

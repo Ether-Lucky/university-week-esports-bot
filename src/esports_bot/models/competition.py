@@ -52,6 +52,9 @@ class MatchResult(Base, TimestampMixin):
     reported_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     corrected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     correction_reason: Mapped[str | None] = mapped_column(Text)
+    # The battle-results announcement message, so corrections edit it and retraction deletes it.
+    announce_channel_id: Mapped[int | None] = mapped_column(Snowflake)
+    announce_message_id: Mapped[int | None] = mapped_column(Snowflake)
 
 
 class Checkin(Base, TimestampMixin):
