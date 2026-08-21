@@ -12,7 +12,7 @@ from discord.ext import commands
 from ..bot import EsportsBot
 from ..domain.enums import ResourceOwnerType
 from ..domain.server_blueprint import slug
-from ..infra import dashboard, db
+from ..infra import dashboard, db, tryout_env
 from ..infra.discord_gateway import DiscordResourceGateway
 from ..infra.discord_resources import DiscordResourceService
 from ..infra.resource_repository import SqlResourceRepository
@@ -22,6 +22,22 @@ from ..services.errors import ServiceError
 from ..services.event_service import EventService
 from ..services.tryout_service import TryoutService
 from .checks import is_staff
+
+
+async def _game_autocomplete(
+    interaction: discord.Interaction, current: str
+) -> list[app_commands.Choice[str]]:
+    async with db.session_scope() as s:
+        event = await EventRepository(s).get_active(interaction.guild_id)
+        if event is None:
+            return []
+        games = await GameRepository(s).list_games_for_event(event.id)
+    cur = current.lower()
+    return [
+        app_commands.Choice(name=g.name, value=g.name)
+        for g in games
+        if cur in g.name.lower()
+    ][:25]
 
 
 class TryoutCog(commands.Cog):
@@ -175,80 +191,17 @@ class TryoutCog(commands.Cog):
                 return
             games = {g.id: g.name for g in await GameRepository(s).list_games_for_event(event.id)}
             event_id = event.id
-        total = await self._provision_voice(interaction.guild, event_id, plans, games)
+        total = await tryout_env.provision_tryout_channels(
+            interaction.guild, event_id, plans, games
+        )
+        hidden = await tryout_env.set_focus(interaction.guild, event_id, hide=True)
         await interaction.followup.send(
-            f"🚀 Tryout started. Created {total} team voice channels (one per team).",
+            f"🚀 Tryout started. Created {total} team voice channels in per-game tryout "
+            f"categories, and hid {hidden} other channels so everyone focuses on the tryout. "
+            "They return on `/tryout end`.",
             ephemeral=True,
         )
 
-    async def _provision_voice(self, guild, event_id, plans, games) -> int:
-        """One voice channel per competing team, supervised by staff. Returns the count."""
-        from ..domain.permissions import STAFF_KEYS
-        from ..models import Team
-
-        created = 0
-        async with db.session_scope() as s:
-            resources = DiscordResourceService(
-                DiscordResourceGateway(guild), SqlResourceRepository(s)
-            )
-            # roster size per game (the join cap) and the staff roles (which bypass it).
-            roster_by_game = {
-                eg.game_id: eg.roster_size
-                for eg in await GameRepository(s).list_for_event(event_id)
-            }
-            role_map = await resources.role_map(event_id)
-            staff_role_ids = [role_map[k] for k in STAFF_KEYS if k in role_map]
-            for plan in plans:
-                s_slug = slug(games.get(plan.game_id, "game"))
-                cat_id = await resources.find(
-                    event_id, ResourceOwnerType.GAME, None, f"cat_game:{s_slug}"
-                )
-                limit = roster_by_game.get(plan.game_id) or 0
-                # Every team that got paired (plus a bye team) needs its own channel.
-                team_ids = {t for pair in plan.pairs for t in pair}
-                if plan.bye:
-                    team_ids.add(plan.bye)
-                for tid in sorted(team_ids):
-                    team = await s.get(Team, tid)
-                    tname = slug(team.name) if team else f"team-{tid}"
-                    vc_id = await resources.ensure_voice_channel(
-                        event_id, ResourceOwnerType.TEAM, tid,
-                        f"tryout_voice:{tid}",
-                        f"{s_slug}-{tname}"[:100], category_id=cat_id,
-                    )
-                    team_role_id = await resources.find(
-                        event_id, ResourceOwnerType.TEAM, tid, f"team_role:{tid}"
-                    )
-                    vc = guild.get_channel(vc_id)
-                    if vc is None:
-                        continue
-                    # Cap to the game's roster size (0 = unlimited); staff bypass via Move Members.
-                    try:
-                        await vc.edit(user_limit=limit if 0 < limit <= 99 else 0)
-                    except discord.HTTPException:
-                        pass
-                    # Everyone can watch but can't join, post, or add new reactions.
-                    await vc.set_permissions(
-                        guild.default_role, view_channel=True, connect=False,
-                        send_messages=False, add_reactions=False,
-                    )
-                    # This team gets full access.
-                    trole = guild.get_role(team_role_id) if team_role_id else None
-                    if trole:
-                        await vc.set_permissions(
-                            trole, view_channel=True, connect=True,
-                            send_messages=True, add_reactions=True,
-                        )
-                    # Staff (who supervise) get full access + Move Members to exceed the cap.
-                    for sid in staff_role_ids:
-                        srole = guild.get_role(sid)
-                        if srole:
-                            await vc.set_permissions(
-                                srole, view_channel=True, connect=True,
-                                send_messages=True, add_reactions=True, move_members=True,
-                            )
-                    created += 1
-        return created
 
     @tryout.command(name="crown", description="Crown a champion team for a game (staff).")
     async def crown(self, interaction: discord.Interaction, game: str, team_id: int) -> None:
@@ -291,6 +244,55 @@ class TryoutCog(commands.Cog):
             ephemeral=True,
         )
 
+    @tryout.command(
+        name="appoint",
+        description="Appoint a Player for a game that formed no teams (staff).",
+    )
+    @app_commands.describe(game="The game", member="The member to appoint as a Player")
+    @app_commands.autocomplete(game=_game_autocomplete)
+    async def appoint(
+        self, interaction: discord.Interaction, game: str, member: discord.Member
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with db.session_scope() as s:
+            event = await EventRepository(s).get_active(interaction.guild_id)
+            if event is None or not await is_staff(interaction, s, event.id, self.bot.settings):
+                await interaction.followup.send("Staff only.", ephemeral=True)
+                return
+            game_list = await GameRepository(s).list_games_for_event(event.id)
+            g = next((x for x in game_list if x.name.lower() == game.lower()), None)
+            if g is None:
+                await interaction.followup.send("Unknown game.", ephemeral=True)
+                return
+            resources = DiscordResourceService(
+                DiscordResourceGateway(interaction.guild), SqlResourceRepository(s)
+            )
+            player_id = await resources.find(
+                event.id, ResourceOwnerType.SYSTEM, None, "role_player"
+            )
+            game_role_id = await resources.find(
+                event.id, ResourceOwnerType.SYSTEM, None, f"game_role:{slug(g.name)}"
+            )
+        granted = []
+        for rid, label in ((player_id, "Player"), (game_role_id, g.name)):
+            role = interaction.guild.get_role(rid) if rid else None
+            if role and role not in member.roles:
+                try:
+                    await member.add_roles(role, reason=f"Appointed for {g.name} (no teams)")
+                    granted.append(label)
+                except discord.HTTPException:
+                    pass
+        if granted:
+            await interaction.followup.send(
+                f"✅ Appointed {member.mention} for **{g.name}** — granted: {', '.join(granted)}.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"{member.mention} already has those roles (or the roles are missing).",
+                ephemeral=True,
+            )
+
     @tryout.command(name="end", description="Finalize the tryout -> RESULTS (staff).")
     async def end(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -304,11 +306,14 @@ class TryoutCog(commands.Cog):
                     event_id=event.id, actor_discord_id=interaction.user.id,
                     actor_username=str(interaction.user),
                 )
+                event_id = event.id
             except (ServiceError, ValueError) as exc:
                 await interaction.followup.send(f"❌ {exc}", ephemeral=True)
                 return
+        restored = await tryout_env.set_focus(interaction.guild, event_id, hide=False)
         await interaction.followup.send(
-            "Tryout ended. Event is now in RESULTS. Run `/export all`, then `/system cleanup`.",
+            f"Tryout ended. Event is now in RESULTS; restored visibility on {restored} channels. "
+            "Run `/export all`, then `/system cleanup`.",
             ephemeral=True,
         )
 

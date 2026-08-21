@@ -192,10 +192,12 @@ def _staff_guide_embed(event_name: str) -> discord.Embed:
     embed.add_field(
         name="🏆 Tryouts & results",
         value=(
-            "• `/tryout schedule` · `/tryout status` · `/tryout start`\n"
+            "• `/tryout schedule` · `/tryout status` · `/tryout start` "
+            "(builds per-game tryout channels + hides the rest)\n"
             "• `/tryout checkin-all` — check every team member in at once\n"
+            "• `/tryout appoint game: member:` — grant Player for a game with no teams\n"
             "• `/match battle-ended` · `/match correct reason:<why>` — record results\n"
-            "• `/tryout crown` · `/tryout end` — crown champions & finalize"
+            "• `/tryout crown` · `/tryout end` — crown champions & finalize (restores channels)"
         ),
         inline=False,
     )
