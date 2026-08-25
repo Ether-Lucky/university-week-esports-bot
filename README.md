@@ -485,7 +485,9 @@ reason:` steps back just the last correction, restoring the winner it had before
   mirror this event's dashboard into a channel of their choice (aggregate counts only, kept updated).
 
 **Exports** (staff)
-- `/export kind:applicants|teams|members|matches|checkins|logs|all`.
+- `/export kind:applicants|teams|members|rosters|matches|checkins|logs|all`.
+  - **rosters** — every active team member's full data (identity + their application: game, email,
+    Facebook, year/section, status), grouped and sorted by team (leaders first).
   - Optional `applicant_status:` filters the **applicants** export: All (default), Active
     (no rejected/withdrawn), Approved only, Pending only, or Rejected only. Rejected applications
     always stay in the database (historical record) — this only controls what's in the CSV.

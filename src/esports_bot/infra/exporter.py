@@ -10,7 +10,7 @@ import csv
 import io
 import json
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -102,6 +102,41 @@ async def export_members(session: AsyncSession, event_id: int) -> str:
     return to_csv(headers, rows)
 
 
+async def export_rosters(session: AsyncSession, event_id: int) -> str:
+    """Every active team member's full data (identity + application), grouped by team."""
+    stmt = (
+        select(TeamMember, User, Team, Game, Application)
+        .join(User, TeamMember.user_id == User.id)
+        .join(Team, TeamMember.team_id == Team.id)
+        .join(Game, Team.game_id == Game.id)
+        .outerjoin(
+            Application,
+            and_(
+                Application.user_id == TeamMember.user_id,
+                Application.event_id == event_id,
+                Application.game_id == Team.game_id,
+            ),
+        )
+        .where(TeamMember.event_id == event_id, TeamMember.active.is_(True))
+        .order_by(Team.name, TeamMember.role_in_team)
+    )
+    res = await session.execute(stmt)
+    headers = [
+        "team_id", "team_name", "game", "team_status", "role_in_team",
+        "discord_user_id", "discord_username", "full_name", "school_email",
+        "facebook_url", "year_section", "application_status", "joined_at",
+    ]
+    rows = [
+        [t.id, t.name, g.name, t.status.value, tm.role_in_team.value,
+         u.discord_user_id, u.discord_username,
+         a.full_name if a else None, a.school_email if a else None,
+         a.facebook_url if a else None, a.year_section if a else None,
+         a.status.value if a else None, tm.joined_at]
+        for tm, u, t, g, a in res.all()
+    ]
+    return to_csv(headers, rows)
+
+
 async def export_matches(session: AsyncSession, event_id: int) -> str:
     res = await session.execute(
         select(Match, MatchResult)
@@ -156,6 +191,7 @@ EXPORTERS = {
     "applicants": export_applicants,
     "teams": export_teams,
     "members": export_members,
+    "rosters": export_rosters,
     "matches": export_matches,
     "checkins": export_checkins,
     "logs": export_logs,
