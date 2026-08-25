@@ -8,7 +8,7 @@ from __future__ import annotations
 from .applications import Application, ApplicationHistory
 from .base import Base
 from .competition import Checkin, Match, MatchResult, Mechanics, Tournament
-from .core import Event, EventGame, Game, StaffAssignment, User
+from .core import Appointment, Event, EventGame, Game, StaffAssignment, User
 from .system_tables import AuditLog, DashboardSubscription, DiscordResource, Export
 from .teams import (
     RecruitmentPost,
@@ -24,6 +24,7 @@ __all__ = [
     "EventGame",
     "User",
     "StaffAssignment",
+    "Appointment",
     "Application",
     "ApplicationHistory",
     "Team",

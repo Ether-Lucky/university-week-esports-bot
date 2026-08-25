@@ -10,6 +10,7 @@ EXPECTED_TABLES = {
     "event_games",
     "users",
     "staff_assignments",
+    "appointments",
     "applications",
     "application_history",
     "teams",

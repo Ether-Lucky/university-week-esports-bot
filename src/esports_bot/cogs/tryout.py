@@ -288,6 +288,29 @@ class TryoutCog(commands.Cog):
             game_role_id = await resources.find(
                 event.id, ResourceOwnerType.SYSTEM, None, f"game_role:{slug(g.name)}"
             )
+            # Record the appointment so it shows in exports and survives restarts.
+            from sqlalchemy import select
+
+            from ..models import Appointment
+            from ..repositories.core import UserRepository
+
+            target = await UserRepository(s).get_or_create(member.id, str(member))
+            actor = await UserRepository(s).get_or_create(
+                interaction.user.id, str(interaction.user)
+            )
+            exists = (
+                await s.execute(
+                    select(Appointment).where(
+                        Appointment.event_id == event.id, Appointment.game_id == g.id,
+                        Appointment.user_id == target.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if exists is None:
+                s.add(Appointment(
+                    event_id=event.id, game_id=g.id, user_id=target.id,
+                    appointed_by=actor.id,
+                ))
         granted = []
         for rid, label in ((player_id, "Player"), (game_role_id, g.name)):
             role = interaction.guild.get_role(rid) if rid else None

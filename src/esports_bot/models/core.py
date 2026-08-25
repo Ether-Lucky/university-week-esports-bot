@@ -96,6 +96,25 @@ class User(Base):
     )
 
 
+class Appointment(Base):
+    """A player staff appointed for a game that formed no teams (Player granted directly)."""
+
+    __tablename__ = "appointments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), nullable=False)
+    game_id: Mapped[int] = mapped_column(ForeignKey("games.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    appointed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "game_id", "user_id", name="appointment_unique"),
+    )
+
+
 class StaffAssignment(Base):
     __tablename__ = "staff_assignments"
 

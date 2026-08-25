@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
     Application,
+    Appointment,
     AuditLog,
     Checkin,
     Game,
@@ -134,6 +135,31 @@ async def export_rosters(session: AsyncSession, event_id: int) -> str:
          a.status.value if a else None, tm.joined_at]
         for tm, u, t, g, a in res.all()
     ]
+
+    # Players staff appointed for a teamless game (Player granted, no team).
+    appt_stmt = (
+        select(Appointment, User, Game, Application)
+        .join(User, Appointment.user_id == User.id)
+        .join(Game, Appointment.game_id == Game.id)
+        .outerjoin(
+            Application,
+            and_(
+                Application.user_id == Appointment.user_id,
+                Application.event_id == event_id,
+                Application.game_id == Appointment.game_id,
+            ),
+        )
+        .where(Appointment.event_id == event_id)
+        .order_by(Game.name)
+    )
+    for appt, u, g, a in (await session.execute(appt_stmt)).all():
+        rows.append(
+            ["", "(appointed — no team)", g.name, "", "APPOINTED",
+             u.discord_user_id, u.discord_username,
+             a.full_name if a else None, a.school_email if a else None,
+             a.facebook_url if a else None, a.year_section if a else None,
+             a.status.value if a else None, appt.created_at]
+        )
     return to_csv(headers, rows)
 
 
